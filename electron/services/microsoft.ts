@@ -99,6 +99,32 @@ function describeAuthError(json: Record<string, unknown>): string {
   return desc || 'Не удалось войти через Microsoft. Попробуйте ещё раз.';
 }
 
+/**
+ * Понятная ошибка по ответу Minecraft Services. Раньше любой отказ считался
+ * «нет купленной игры», хотя чаще всего это значило, что Mojang ещё не
+ * одобрил приложение лаунчера (403 «Invalid app registration»).
+ */
+export function describeMinecraftError(status: number, body: Record<string, unknown>, step: 'login' | 'profile'): AuthError {
+  const raw = `${body.errorMessage ?? ''} ${body.error ?? ''} ${body.errorType ?? ''} ${body.developerMessage ?? ''}`;
+  if (/invalid app registration|AppRegInfo/i.test(raw) || (step === 'login' && status === 403)) {
+    return new AuthError(
+      'APP_NOT_APPROVED',
+      'Вход через Microsoft пока не работает: Mojang ещё не одобрил приложение Ploxel. С вашим аккаунтом всё в порядке — вход заработает сам после одобрения. Пока можно играть с офлайн-профилем.'
+    );
+  }
+  if (status === 429) {
+    return new AuthError('RATE_LIMIT', 'Слишком много попыток входа. Подождите пару минут и попробуйте снова.');
+  }
+  if (step === 'profile' && (status === 404 || /NOT_FOUND/i.test(raw))) {
+    return new AuthError('NO_GAME', 'На этом аккаунте Microsoft нет Minecraft: Java Edition (или у него ещё не создан ник на minecraft.net).');
+  }
+  if (status >= 500) {
+    return new AuthError('MC_DOWN', 'Сервера Minecraft сейчас не отвечают. Попробуйте позже.');
+  }
+  const msg = String(body.errorMessage ?? '').trim();
+  return new AuthError('MC', msg ? `Minecraft не принял вход: ${msg} (HTTP ${status})` : `Minecraft не принял вход (HTTP ${status}).`);
+}
+
 export async function startDeviceLogin(): Promise<DeviceCodeInfo> {
   console.log('[auth] device code: запрос у Microsoft');
   const order = [preferredTenant, ...TENANTS.filter((t) => t !== preferredTenant)];
@@ -205,13 +231,16 @@ async function finishLogin(msAccessToken: string, refreshToken: string, expiresI
   }
   const uhs = ((xsts.DisplayClaims as { xui: { uhs: string }[] })?.xui?.[0]?.uhs) ?? '';
 
-  const mc = await postJson('https://api.minecraftservices.com/authentication/login_with_xbox', {
-    identityToken: `XBL3.0 x=${uhs};${String(xsts.Token)}`
-  }, '');
+  const mcRes = await fetch('https://api.minecraftservices.com/authentication/login_with_xbox', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ identityToken: `XBL3.0 x=${uhs};${String(xsts.Token)}` })
+  });
+  const mc = (await mcRes.json().catch(() => ({}))) as Record<string, unknown>;
   const mcToken = String(mc.access_token ?? '');
   if (!mcToken) {
-    console.warn('[auth] Minecraft отказ', JSON.stringify(mc).slice(0, 400));
-    throw new AuthError('MC', 'Minecraft не принял вход. Возможно, на аккаунте нет купленной игры.');
+    console.warn('[auth] Minecraft отказ', mcRes.status, JSON.stringify(mc).slice(0, 400));
+    throw describeMinecraftError(mcRes.status, mc, 'login');
   }
   console.log('[auth] Minecraft-токен получен');
 
@@ -219,7 +248,9 @@ async function finishLogin(msAccessToken: string, refreshToken: string, expiresI
     headers: { Authorization: `Bearer ${mcToken}` }
   });
   if (!profileRes.ok) {
-    throw new AuthError('NO_GAME', 'На этом аккаунте Microsoft нет Minecraft: Java Edition.');
+    const body = (await profileRes.json().catch(() => ({}))) as Record<string, unknown>;
+    console.warn('[auth] профиль Minecraft', profileRes.status, JSON.stringify(body).slice(0, 400));
+    throw describeMinecraftError(profileRes.status, body, 'profile');
   }
   const profile = (await profileRes.json()) as { id?: string; name?: string; skins?: { url: string }[] };
 
