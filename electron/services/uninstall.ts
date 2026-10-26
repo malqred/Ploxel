@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getRoot } from './paths';
-import { buildCleanupScript, findUninstaller, installedAppDir, ownInstancesDir } from '../core/uninstall';
+import { buildCleanupScript, findUninstaller, installedAppDir, ownInstancesDir, ownMovedDataRoot, ownUserDataDir, type FullCleanup } from '../core/uninstall';
 
 export interface UninstallResult {
   scheduled: boolean;
@@ -18,12 +18,23 @@ export interface UninstallResult {
  * отдельный сценарий PowerShell ждёт выхода приложения и запускает штатный
  * деинсталлятор. Другие версии Ploxel и чужие файлы не затрагиваются.
  */
-export function uninstallLauncher(options: { deleteInstances?: boolean }): UninstallResult {
+export function uninstallLauncher(options: { deleteInstances?: boolean; deleteAllData?: boolean }): UninstallResult {
   const appDir = installedAppDir(app.getPath('exe'), app.isPackaged);
   let removedInstances = false;
   let warning: string | undefined;
 
-  if (options.deleteInstances) {
+  // Полное удаление: всё стирается сценарием после выхода лаунчера
+  // (пока он работает, файлы данных заняты)
+  let full: FullCleanup | null = null;
+  if (options.deleteAllData) {
+    const userData = ownUserDataDir(app.getPath('userData'), process.env.APPDATA ?? '');
+    const movedRoot = ownMovedDataRoot(getRoot(), app.getPath('userData'));
+    full = { userData, movedRoot, desktop: app.getPath('desktop') };
+    removedInstances = true;
+    if (!userData) warning = 'Папка настроек лежит не на стандартном месте — она оставлена, удалите её вручную.';
+  }
+
+  if (options.deleteInstances && !options.deleteAllData) {
     const dir = ownInstancesDir(getRoot(), path.join(getRoot(), 'instances'));
     if (!dir) {
       warning = 'Папка сборок не принадлежит лаунчеру — она оставлена на месте.';
@@ -51,7 +62,7 @@ export function uninstallLauncher(options: { deleteInstances?: boolean }): Unins
   const uninstaller = findUninstaller(files, appDir);
   const scriptPath = path.join(os.tmpdir(), `ploxel-uninstall-${Date.now()}.ps1`);
   // BOM — чтобы PowerShell 5.1 прочитал кириллицу в путях
-  fs.writeFileSync(scriptPath, '﻿' + buildCleanupScript(appDir, uninstaller), 'utf8');
+  fs.writeFileSync(scriptPath, '﻿' + buildCleanupScript(appDir, uninstaller, full), 'utf8');
   const child = spawn(
     'powershell.exe',
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', scriptPath],

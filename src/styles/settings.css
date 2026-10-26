@@ -406,3 +406,12 @@
   font-weight: 650;
   font-size: var(--fs-md);
 }
+
+.update-notes {
+  max-height: 220px;
+  overflow: auto;
+  padding: var(--space-3);
+  border-radius: var(--r-md);
+  background: rgb(var(--inset-rgb));
+  font-size: var(--fs-sm);
+}

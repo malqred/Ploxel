@@ -7,13 +7,26 @@ import { Checkbox } from '../../ui/Controls';
 import { ConfirmDialog } from '../../ui/Overlay';
 import { useToast } from '../../state/toast';
 import { Section } from './parts';
+import { Markdown } from '../../ui/Markdown';
+import { fmtBytes } from '../../i18n';
+
+interface UpdateInfo {
+  available: boolean;
+  version: string;
+  error?: string;
+  notes?: string;
+  page?: string;
+  size?: number;
+}
 
 export function AboutTab() {
   const { info } = useSettings();
-  const [update, setUpdate] = useState<{ available: boolean; version: string; error?: string; notes?: string } | null>(null);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [installing, setInstalling] = useState(false);
   const [checking, setChecking] = useState(false);
   const [uninstallOpen, setUninstallOpen] = useState(false);
   const [deleteInstances, setDeleteInstances] = useState(false);
+  const [deleteAll, setDeleteAll] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -25,11 +38,11 @@ export function AboutTab() {
   const check = async () => {
     setChecking(true);
     try {
-      const res = await api.invoke<{ available: boolean; version: string; error?: string; notes?: string }>('update:check');
+      const res = await api.invoke<UpdateInfo>('update:check');
       setUpdate(res);
       if (res.available) toast('info', `Доступна версия ${res.version}`);
       else if (res.error) toast('warning', 'Проверка обновлений', res.error);
-      else toast('success', 'Обновлений нет', `Версия ${res.version}`);
+      else toast('success', 'Обновлений нет', `У вас последняя версия — ${info.version}`);
     } finally {
       setChecking(false);
     }
@@ -57,7 +70,7 @@ export function AboutTab() {
 
       <Section
         title="Обновления"
-        hint="Лаунчер может сам проверить, вышла ли новая версия."
+        hint="Новые версии выходят на GitHub. Лаунчер проверяет их при запуске (это можно выключить в «Общих»), а установка идёт поверх — сборки и настройки сохраняются."
         actions={
           <Button variant="secondary" size="sm" icon={<RefreshCw size={14} />} onClick={check} loading={checking}>
             Проверить
@@ -66,21 +79,39 @@ export function AboutTab() {
       >
         {update?.available ? (
           <>
-            <p>
-              Доступна версия <strong>{update.version}</strong>. Установщик скачается и запустится — лаунчер
-              закроется.
-            </p>
-            {update.notes && <p className="small muted">{update.notes}</p>}
-            <Button
-              icon={<Download size={15} />}
-              onClick={() => api.invoke('update:install', update).catch((e) => toast('error', 'Обновление не удалось', String(e)))}
-            >
-              Скачать и установить
-            </Button>
+            <p>{`Доступна версия ${update.version} (у вас ${info.version}). Установщик скачается, лаунчер закроется, обновится и откроется снова.`}</p>
+            {update.notes && (
+              <div className="update-notes">
+                <Markdown text={update.notes} />
+              </div>
+            )}
+            <div className="row" style={{ gap: 8 }}>
+              <Button
+                icon={<Download size={15} />}
+                loading={installing}
+                onClick={() => {
+                  setInstalling(true);
+                  toast('info', 'Скачиваем обновление', 'Прогресс — в меню слева.');
+                  api
+                    .invoke('update:install')
+                    .catch((e) => {
+                      setInstalling(false);
+                      toast('error', 'Обновление не удалось', e instanceof Error ? e.message : String(e));
+                    });
+                }}
+              >
+                {update.size ? `Скачать и установить (${fmtBytes(update.size)})` : 'Скачать и установить'}
+              </Button>
+              {update.page && (
+                <Button variant="secondary" icon={<ExternalLink size={15} />} onClick={() => api.shell.openExternal(update.page!)}>
+                  Что нового
+                </Button>
+              )}
+            </div>
           </>
         ) : (
           <p className="small muted">
-            {update?.error ?? 'Нажмите «Проверить», чтобы узнать, есть ли новая версия.'}
+            {update?.error ?? (update ? `У вас последняя версия — ${info.version}.` : 'Нажмите «Проверить», чтобы узнать, есть ли новая версия.')}
           </p>
         )}
       </Section>
@@ -104,8 +135,8 @@ export function AboutTab() {
         hint="Удаляет только этот Ploxel. Другие версии лаунчера и посторонние файлы остаются на месте."
       >
         <p className="small">
-          Программа закроется и удалит свою папку установки. Настройки и скачанные версии игры останутся в папке
-          данных — их можно стереть вручную, если они больше не нужны.
+          Программа закроется и удалит свою папку установки. Сборки и все данные (аккаунты, настройки, скачанные
+          версии игры) можно удалить галочками в окне удаления — иначе они останутся для переустановки.
         </p>
         <div className="row" style={{ gap: 10, marginTop: 10 }}>
           <Button
@@ -114,6 +145,7 @@ export function AboutTab() {
             disabled={!info.packaged}
             onClick={() => {
               setDeleteInstances(false);
+              setDeleteAll(false);
               setUninstallOpen(true);
             }}
           >
@@ -135,7 +167,8 @@ export function AboutTab() {
           setUninstallOpen(false);
           void api
             .invoke<{ scheduled: boolean; removedInstances: boolean; warning?: string }>('app:uninstall', {
-              deleteInstances
+              deleteInstances: deleteInstances || deleteAll,
+              deleteAllData: deleteAll
             })
             .then((res) => {
               if (res.warning) toast('warning', 'Удаление', res.warning);
@@ -150,16 +183,28 @@ export function AboutTab() {
           Будет удалена папка этой версии Ploxel и её ярлыки. Другие установленные версии лаунчера и файлы,
           которые к нему не относятся, не затрагиваются.
         </p>
-        <label className="row" style={{ gap: 10, marginTop: 12, cursor: 'pointer' }}>
+        <label className="row" style={{ gap: 10, marginTop: 12, cursor: deleteAll ? 'default' : 'pointer' }}>
           <Checkbox
-            checked={deleteInstances}
+            checked={deleteInstances || deleteAll}
             onChange={setDeleteInstances}
+            disabled={deleteAll}
             label="Также удалить мои сборки"
           />
           <span className="col" style={{ gap: 2 }}>
             <span>Также удалить мои сборки</span>
             <span className="tiny muted">
               Папка сборок целиком: моды, миры и конфиги. Отменить это будет нельзя.
+            </span>
+          </span>
+        </label>
+        <label className="row" style={{ gap: 10, marginTop: 12, cursor: 'pointer' }}>
+          <Checkbox checked={deleteAll} onChange={setDeleteAll} label="Удалить все данные Ploxel" />
+          <span className="col" style={{ gap: 2 }}>
+            <span>Удалить все данные Ploxel</span>
+            <span className="tiny muted">
+              Не останется ничего: сборки и миры, аккаунты, настройки, ключ ИИ, скины, переписка с помощником,
+              скачанные версии игры, Java, кэш и ярлыки сборок. Данные общие для всех версий Ploxel на этом
+              компьютере. Отменить это будет нельзя.
             </span>
           </span>
         </label>

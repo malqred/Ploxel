@@ -114,7 +114,7 @@ export function registerIpc(): void {
     };
   });
 
-  handle('app:uninstall', (options: { deleteInstances?: boolean }) => {
+  handle('app:uninstall', (options: { deleteInstances?: boolean; deleteAllData?: boolean }) => {
     const result = uninstallLauncher(options ?? {});
     // Даём ответу дойти до окна, закрываемся и уступаем место деинсталлятору.
     setTimeout(() => app.quit(), 400);
@@ -634,9 +634,8 @@ export function registerIpc(): void {
   /* ------------------------------ Обновления ------------------------------ */
 
   handle('update:check', () => checkForUpdates());
-  handle('update:install', (info: { available: boolean; version: string; url?: string; sha256?: string }) =>
-    downloadAndRunUpdate(info)
-  );
+  // Ссылку на установщик берём заново с GitHub, а не из окна: подменить её нельзя
+  handle('update:install', async () => downloadAndRunUpdate(await checkForUpdates()));
 
   /* ------------------------------ Миры ------------------------------ */
 

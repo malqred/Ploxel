@@ -64,6 +64,58 @@ export function ownInstancesDir(root: string, candidate: string): string | null 
   return target;
 }
 
+/** Что лаунчер сам создаёт в корне данных — при полном удалении стирается только это. */
+export const ROOT_ENTRIES = [
+  'data',
+  'instances',
+  'logs',
+  'cache',
+  'downloads',
+  'backups',
+  'secrets',
+  'skins',
+  'accounts.json',
+  'settings.json',
+  'playtime.json'
+] as const;
+
+/**
+ * Папка приложения в %APPDATA% (кэш Chromium, переписка с помощником,
+ * указатель root.json, корень данных по умолчанию). Удалять можно только
+ * папку с именем Ploxel прямо внутри %APPDATA%.
+ */
+export function ownUserDataDir(userData: string, appData: string): string | null {
+  if (!userData || !appData) return null;
+  const dir = path.resolve(userData);
+  if (path.basename(dir).toLowerCase() !== 'ploxel') return null;
+  if (!samePath(path.dirname(dir), appData)) return null;
+  if (FORBIDDEN_DIRS().some((bad) => samePath(dir, bad))) return null;
+  return dir;
+}
+
+/**
+ * Корень данных, перенесённый за пределы %APPDATA%\Ploxel: удаляются только
+ * записи лаунчера (ROOT_ENTRIES), сама папка — лишь если после этого пуста.
+ * null — корень лежит внутри userData (удалится вместе с ней) или опасен.
+ */
+export function ownMovedDataRoot(root: string, userData: string): { root: string; entries: string[] } | null {
+  if (!root) return null;
+  const dir = path.resolve(root);
+  if (samePath(dir, userData) || inside(userData, dir)) return null;
+  if (dir.toLowerCase().split(path.sep).filter(Boolean).length < 2) return null;
+  if (FORBIDDEN_DIRS().some((bad) => samePath(dir, bad))) return null;
+  if (/[\\/]node_modules([\\/]|$)/i.test(dir)) return null;
+  return { root: dir, entries: ROOT_ENTRIES.map((e) => path.join(dir, e)) };
+}
+
+/** Что ещё стереть при полном удалении (всё проверено функциями выше). */
+export interface FullCleanup {
+  userData: string | null;
+  movedRoot: { root: string; entries: string[] } | null;
+  /** рабочий стол — ярлыки сборок, ведущие на этот Ploxel.exe */
+  desktop: string | null;
+}
+
 /** Имя установщика удаления, который создаёт electron-builder (NSIS). */
 export function findUninstaller(files: string[], appDir: string): string | null {
   const match = files.find((name) => /^Uninstall .*\.exe$/i.test(name));
@@ -80,20 +132,50 @@ export function psQuote(value: string): string {
  * (он удаляет ярлыки и запись в «Установленных программах») либо, если его
  * нет, удаляет только папку этой версии.
  */
-export function buildCleanupScript(appDir: string, uninstaller: string | null): string {
+export function buildCleanupScript(appDir: string, uninstaller: string | null, full?: FullCleanup | null): string {
   const lines = [
     '$ErrorActionPreference = "SilentlyContinue"',
     'Start-Sleep -Seconds 3',
     `$app = ${psQuote(appDir)}`,
-    `$un = ${uninstaller ? psQuote(uninstaller) : '$null'}`,
+    `$un = ${uninstaller ? psQuote(uninstaller) : '$null'}`
+  ];
+  // Ярлыки сборок на рабочем столе читаем до удаления программы
+  if (full?.desktop) {
+    lines.push(
+      `$desk = ${psQuote(full.desktop)}`,
+      '$exe = Join-Path $app "Ploxel.exe"',
+      '$sh = New-Object -ComObject WScript.Shell',
+      'Get-ChildItem -LiteralPath $desk -Filter *.lnk | ForEach-Object {',
+      '  if ($sh.CreateShortcut($_.FullName).TargetPath -ieq $exe) { Remove-Item -LiteralPath $_.FullName -Force }',
+      '}'
+    );
+  }
+  lines.push(
     'if ($un -and (Test-Path -LiteralPath $un)) {',
     '  Start-Process -FilePath $un -ArgumentList "/S" -WorkingDirectory $app -Wait',
     '}',
     'for ($i = 0; $i -lt 5 -and (Test-Path -LiteralPath $app); $i++) {',
     '  Remove-Item -LiteralPath $app -Recurse -Force',
     '  if (Test-Path -LiteralPath $app) { Start-Sleep -Seconds 1 }',
-    '}',
-    'Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force'
-  ];
+    '}'
+  );
+  if (full?.movedRoot) {
+    lines.push(`$root = ${psQuote(full.movedRoot.root)}`);
+    for (const entry of full.movedRoot.entries) {
+      lines.push(`Remove-Item -LiteralPath ${psQuote(entry)} -Recurse -Force`);
+    }
+    // Папку корня — только если в ней не осталось чужих файлов
+    lines.push('if ((Get-ChildItem -LiteralPath $root -Force | Measure-Object).Count -eq 0) { Remove-Item -LiteralPath $root -Force }');
+  }
+  if (full?.userData) {
+    lines.push(
+      `$ud = ${psQuote(full.userData)}`,
+      'for ($i = 0; $i -lt 5 -and (Test-Path -LiteralPath $ud); $i++) {',
+      '  Remove-Item -LiteralPath $ud -Recurse -Force',
+      '  if (Test-Path -LiteralPath $ud) { Start-Sleep -Seconds 1 }',
+      '}'
+    );
+  }
+  lines.push('Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force');
   return lines.join('\r\n') + '\r\n';
 }
