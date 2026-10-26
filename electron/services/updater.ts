@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { app } from 'electron';
 import { getConfig } from './config';
 import { p } from './paths';
 import { downloadMany } from './downloader';
+import { launchOutsideApp } from './detached';
 
 /**
  * Автообновление лаунчера через GitHub Releases (github.com/malqred/Ploxel).
@@ -117,7 +117,8 @@ export async function downloadAndRunUpdate(info: UpdateInfo): Promise<string> {
     }
   }
   // /S — без мастера, в ту же папку; --force-run — запустить Ploxel после установки
-  spawn(dest, ['/S', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
+  // Установщик должен пережить закрытие лаунчера (иначе Electron его убьёт)
+  launchOutsideApp(dest, ['/S', '--force-run']);
   setTimeout(() => app.quit(), 800);
   return dest;
 }

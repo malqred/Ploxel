@@ -1,9 +1,9 @@
 import { app } from 'electron';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getRoot } from './paths';
+import { launchOutsideApp } from './detached';
 import { buildCleanupScript, findUninstaller, installedAppDir, ownInstancesDir, ownMovedDataRoot, ownUserDataDir, type FullCleanup } from '../core/uninstall';
 
 export interface UninstallResult {
@@ -63,11 +63,7 @@ export function uninstallLauncher(options: { deleteInstances?: boolean; deleteAl
   const scriptPath = path.join(os.tmpdir(), `ploxel-uninstall-${Date.now()}.ps1`);
   // BOM — чтобы PowerShell 5.1 прочитал кириллицу в путях
   fs.writeFileSync(scriptPath, '﻿' + buildCleanupScript(appDir, uninstaller, full), 'utf8');
-  const child = spawn(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', scriptPath],
-    { detached: true, stdio: 'ignore', windowsHide: true }
-  );
-  child.unref();
+  // Сценарий должен пережить закрытие лаунчера — обычный spawn его убивал
+  launchOutsideApp('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', scriptPath]);
   return { scheduled: true, removedInstances, warning };
 }
