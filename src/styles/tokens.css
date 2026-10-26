@@ -1,0 +1,347 @@
+/* ============================================================
+   Ploxel — дизайн-токены
+   Всё оформление строится отсюда. Компоненты не хардкодят цвета.
+   ============================================================ */
+
+:root {
+  /* --- Типографика --- */
+  --font-ui: 'Onest', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Lora', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  --text-scale: 1;
+  --fs-xs: calc(0.72rem * var(--text-scale));
+  --fs-sm: calc(0.82rem * var(--text-scale));
+  --fs-md: calc(0.95rem * var(--text-scale));
+  --fs-lg: calc(1.15rem * var(--text-scale));
+  --fs-xl: calc(1.5rem * var(--text-scale));
+  --fs-2xl: calc(2rem * var(--text-scale));
+  --fs-3xl: calc(2.6rem * var(--text-scale));
+
+  /* --- Скругления (масштабируются ползунком) --- */
+  --radius-scale: 1;
+  --r-xs: calc(8px * var(--radius-scale));
+  --r-sm: calc(12px * var(--radius-scale));
+  --r-md: calc(18px * var(--radius-scale));
+  --r-lg: calc(24px * var(--radius-scale));
+  --r-xl: calc(32px * var(--radius-scale));
+  --r-pill: 999px;
+
+  /* --- Отступы/сетка --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --sidebar-w: 248px;
+  --titlebar-h: 40px;
+
+  /* --- Объём: «физические» кнопки --- */
+  --lip: 4px;               /* толщина бортика кнопки */
+  --press-depth: 3px;       /* на сколько вдавливается */
+  --hover-lift: 2px;        /* приподнимание при наведении */
+  --highlight: rgba(255, 255, 255, 0.65);
+  --highlight-soft: rgba(255, 255, 255, 0.35);
+  --lip-shade: rgba(24, 22, 18, 0.22);
+  --shadow-1: 0 1px 2px rgba(var(--shadow-rgb), 0.18);
+  --shadow-2: 0 2px 6px rgba(var(--shadow-rgb), 0.12), 0 10px 24px rgba(var(--shadow-rgb), 0.14);
+  --shadow-3: 0 6px 12px rgba(var(--shadow-rgb), 0.14), 0 18px 42px rgba(var(--shadow-rgb), 0.18);
+  --shadow-glow: 0 0 24px color-mix(in srgb, var(--accent) 55%, transparent);
+  --inset-shadow: inset 0 2px 5px rgba(var(--shadow-rgb), 0.22), inset 0 1px 1px rgba(var(--shadow-rgb), 0.18);
+
+  /* --- Прозрачность панелей (ползунок) --- */
+  --panel-opacity: 1;
+
+  /* --- Анимации --- */
+  --dur-fast: 140ms;
+  --dur-mid: 240ms;
+  --dur-slow: 380ms;
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --stagger-step: 28ms;
+
+  /* --- Слойность --- */
+  --z-panel: 1;
+  --z-sticky: 20;
+  --z-dropdown: 60;
+  --z-modal: 80;
+  --z-popover: 90;
+  --z-toast: 100;
+
+  /* --- Акцент (переопределяется пользователем) --- */
+  --accent: #7e9c89;
+  --accent-2: #5f7d6b;
+  --accent-text: #fffdf8;
+  --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --secondary: #9b86c4;
+  --secondary-text: #fdfbff;
+  --success: #5f9c74;
+  --warning: #d9a441;
+  --danger: #c26a64;
+  --info: #6e93b5;
+}
+
+/* ============================ ТЕМЫ ============================
+   Семь тем, у каждой — светлый и тёмный вариант. Тема задаёт оттенок,
+   data-mode — свет: <html data-theme="sage" data-mode="dark">. */
+
+/* Общее для всех тёмных вариантов */
+[data-theme][data-mode='dark'] {
+  --line-rgb: 255 255 255;
+  --shadow-rgb: 0 0 0;
+  --highlight: rgba(255, 255, 255, 0.14);
+  --highlight-soft: rgba(255, 255, 255, 0.07);
+  --lip-shade: rgba(0, 0, 0, 0.5);
+  --scheme: dark;
+}
+
+/* --- Крем: тёплый нейтральный --- */
+[data-theme='cream'] {
+  --bg-rgb: 238 229 214;
+  --panel-rgb: 247 240 228;
+  --panel-2-rgb: 241 233 219;
+  --inset-rgb: 233 223 205;
+  --sidebar-rgb: 30 29 26;
+  --text: #26241f;
+  --text-soft: #57514a;
+  --text-muted: #706a5e;
+  --sidebar-text: #efe6d6;
+  --sidebar-text-muted: #a9a293;
+  --line-rgb: 38 36 31;
+  --shadow-rgb: 84 68 46;
+  --highlight: rgba(255, 255, 255, 0.7);
+  --lip-shade: rgba(70, 56, 38, 0.25);
+  --scheme: light;
+}
+[data-theme='cream'][data-mode='dark'] {
+  --bg-rgb: 24 22 19;
+  --panel-rgb: 35 32 28;
+  --panel-2-rgb: 42 38 33;
+  --inset-rgb: 17 15 13;
+  --sidebar-rgb: 14 13 11;
+  --text: #efe7d9;
+  --text-soft: #cbc1b1;
+  --text-muted: #9a907f;
+  --sidebar-text: #ece4d6;
+  --sidebar-text-muted: #8f8778;
+}
+
+/* --- Шалфей: зелёный --- */
+[data-theme='sage'] {
+  --bg-rgb: 227 235 221;
+  --panel-rgb: 241 246 236;
+  --panel-2-rgb: 232 240 226;
+  --inset-rgb: 219 229 212;
+  --sidebar-rgb: 31 42 33;
+  --text: #22301f;
+  --text-soft: #4c5c48;
+  --text-muted: #63715d;
+  --sidebar-text: #e9f0e2;
+  --sidebar-text-muted: #9fae97;
+  --line-rgb: 34 48 31;
+  --shadow-rgb: 52 74 50;
+  --highlight: rgba(255, 255, 255, 0.72);
+  --lip-shade: rgba(42, 60, 40, 0.24);
+  --scheme: light;
+}
+[data-theme='sage'][data-mode='dark'] {
+  --bg-rgb: 19 25 20;
+  --panel-rgb: 28 36 30;
+  --panel-2-rgb: 34 43 36;
+  --inset-rgb: 12 17 13;
+  --sidebar-rgb: 10 14 11;
+  --text: #e6efe1;
+  --text-soft: #bdcbb7;
+  --text-muted: #8d9d88;
+  --sidebar-text: #e3ecdd;
+  --sidebar-text-muted: #84927f;
+}
+
+/* --- Туман: холодный голубой --- */
+[data-theme='fog'] {
+  --bg-rgb: 228 237 242;
+  --panel-rgb: 242 247 250;
+  --panel-2-rgb: 232 241 246;
+  --inset-rgb: 219 231 238;
+  --sidebar-rgb: 26 35 41;
+  --text: #1e2a31;
+  --text-soft: #4a5a63;
+  --text-muted: #617079;
+  --sidebar-text: #e6eef2;
+  --sidebar-text-muted: #98a8b1;
+  --line-rgb: 30 42 49;
+  --shadow-rgb: 44 70 86;
+  --highlight: rgba(255, 255, 255, 0.78);
+  --lip-shade: rgba(40, 60, 74, 0.22);
+  --scheme: light;
+}
+[data-theme='fog'][data-mode='dark'] {
+  --bg-rgb: 17 22 26;
+  --panel-rgb: 26 33 38;
+  --panel-2-rgb: 32 40 46;
+  --inset-rgb: 11 15 18;
+  --sidebar-rgb: 9 12 15;
+  --text: #e3ecf1;
+  --text-soft: #b8c7cf;
+  --text-muted: #8798a2;
+  --sidebar-text: #e0e9ee;
+  --sidebar-text-muted: #7e8f99;
+}
+
+/* --- Закат: персиковый --- */
+[data-theme='sunset'] {
+  --bg-rgb: 246 227 214;
+  --panel-rgb: 252 241 231;
+  --panel-2-rgb: 248 232 220;
+  --inset-rgb: 238 218 203;
+  --sidebar-rgb: 43 31 26;
+  --text: #33231d;
+  --text-soft: #63493f;
+  --text-muted: #7c6255;
+  --sidebar-text: #f6e7db;
+  --sidebar-text-muted: #b39c8e;
+  --line-rgb: 51 35 29;
+  --shadow-rgb: 94 58 44;
+  --highlight: rgba(255, 255, 255, 0.72);
+  --lip-shade: rgba(74, 44, 32, 0.24);
+  --scheme: light;
+}
+[data-theme='sunset'][data-mode='dark'] {
+  --bg-rgb: 29 21 18;
+  --panel-rgb: 40 30 26;
+  --panel-2-rgb: 48 36 31;
+  --inset-rgb: 20 14 12;
+  --sidebar-rgb: 16 11 9;
+  --text: #f5e7dc;
+  --text-soft: #d4bdae;
+  --text-muted: #a48e81;
+  --sidebar-text: #f2e3d7;
+  --sidebar-text-muted: #988275;
+}
+
+/* --- Сепия: старая бумага --- */
+[data-theme='sepia'] {
+  --bg-rgb: 235 223 201;
+  --panel-rgb: 245 236 221;
+  --panel-2-rgb: 238 227 208;
+  --inset-rgb: 228 214 191;
+  --sidebar-rgb: 43 36 26;
+  --text: #33291d;
+  --text-soft: #5f5240;
+  --text-muted: #716551;
+  --sidebar-text: #f0e6d2;
+  --sidebar-text-muted: #b0a189;
+  --line-rgb: 51 41 29;
+  --shadow-rgb: 88 68 42;
+  --highlight: rgba(255, 255, 255, 0.66);
+  --lip-shade: rgba(66, 50, 30, 0.26);
+  --scheme: light;
+}
+[data-theme='sepia'][data-mode='dark'] {
+  --bg-rgb: 26 22 16;
+  --panel-rgb: 37 32 24;
+  --panel-2-rgb: 44 38 29;
+  --inset-rgb: 18 15 11;
+  --sidebar-rgb: 14 12 8;
+  --text: #f0e6d1;
+  --text-soft: #cebfa5;
+  --text-muted: #9d8f77;
+  --sidebar-text: #ede2cc;
+  --sidebar-text-muted: #91846d;
+}
+
+/* --- Лаванда: фиолетовый --- */
+[data-theme='lavender'] {
+  --bg-rgb: 233 228 242;
+  --panel-rgb: 245 242 250;
+  --panel-2-rgb: 237 233 245;
+  --inset-rgb: 225 219 237;
+  --sidebar-rgb: 32 28 43;
+  --text: #26213a;
+  --text-soft: #514a68;
+  --text-muted: #736b8c;
+  --sidebar-text: #ece8f5;
+  --sidebar-text-muted: #a49dba;
+  --line-rgb: 38 33 58;
+  --shadow-rgb: 64 52 96;
+  --highlight: rgba(255, 255, 255, 0.74);
+  --lip-shade: rgba(52, 42, 80, 0.24);
+  --scheme: light;
+}
+[data-theme='lavender'][data-mode='dark'] {
+  --bg-rgb: 22 20 30;
+  --panel-rgb: 32 29 43;
+  --panel-2-rgb: 39 35 51;
+  --inset-rgb: 15 13 21;
+  --sidebar-rgb: 11 10 16;
+  --text: #ece8f6;
+  --text-soft: #c5bed9;
+  --text-muted: #948caa;
+  --sidebar-text: #e8e4f3;
+  --sidebar-text-muted: #8a83a0;
+}
+
+/* --- Графит: чистый серый --- */
+[data-theme='graphite'] {
+  --bg-rgb: 230 231 233;
+  --panel-rgb: 245 245 246;
+  --panel-2-rgb: 237 238 240;
+  --inset-rgb: 224 226 229;
+  --sidebar-rgb: 28 30 33;
+  --text: #1f2124;
+  --text-soft: #4c5056;
+  --text-muted: #6c7178;
+  --sidebar-text: #e8e9eb;
+  --sidebar-text-muted: #9a9ea4;
+  --line-rgb: 31 33 36;
+  --shadow-rgb: 40 44 50;
+  --highlight: rgba(255, 255, 255, 0.8);
+  --lip-shade: rgba(30, 34, 40, 0.22);
+  --scheme: light;
+}
+[data-theme='graphite'][data-mode='dark'] {
+  --bg-rgb: 26 28 31;
+  --panel-rgb: 38 41 45;
+  --panel-2-rgb: 44 48 52;
+  --inset-rgb: 20 22 24;
+  --sidebar-rgb: 15 16 18;
+  --text: #ebe6dd;
+  --text-soft: #c2bdb4;
+  --text-muted: #918d85;
+  --sidebar-text: #e8e3da;
+  --sidebar-text-muted: #807c74;
+}
+
+/* ========================= УРОВНИ АНИМАЦИИ ========================= */
+
+[data-motion='reduced'] {
+  --dur-fast: 60ms;
+  --dur-mid: 110ms;
+  --dur-slow: 170ms;
+  --ease-spring: var(--ease-out);
+  --stagger-step: 0ms;
+}
+
+[data-motion='off'] {
+  --dur-fast: 1ms;
+  --dur-mid: 1ms;
+  --dur-slow: 1ms;
+  --stagger-step: 0ms;
+}
+[data-motion='off'] *,
+[data-motion='off'] *::before,
+[data-motion='off'] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='full']) {
+    --dur-fast: 60ms;
+    --dur-mid: 110ms;
+    --dur-slow: 170ms;
+  }
+}

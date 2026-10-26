@@ -1,0 +1,345 @@
+/* ============================================================
+   Библиотека компонентов: кнопки, переключатели, вкладки,
+   поля, ползунки, прогресс. Объём — через токены.
+   ============================================================ */
+
+/* ------------------------------- Кнопки ------------------------------- */
+
+.btn {
+  --btn-bg: var(--accent);
+  --btn-fg: var(--accent-text);
+  --btn-lip: color-mix(in srgb, var(--btn-bg) 62%, black);
+  --btn-hi: var(--highlight);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-5);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--btn-fg);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--btn-bg) 86%, white) 0%,
+    var(--btn-bg) 52%,
+    color-mix(in srgb, var(--btn-bg) 94%, black) 100%
+  );
+  box-shadow: inset 0 1px 0 var(--btn-hi), inset 0 calc(-1 * var(--lip)) 0 var(--btn-lip),
+    0 3px 8px rgba(var(--shadow-rgb), 0.18);
+  transform: translateY(0);
+  transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-standard),
+    filter var(--dur-fast) var(--ease-standard);
+  user-select: none;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(calc(-1 * var(--hover-lift)));
+  filter: brightness(1.05);
+  box-shadow: inset 0 1px 0 var(--btn-hi), inset 0 calc(-1 * var(--lip)) 0 var(--btn-lip),
+    0 6px 14px rgba(var(--shadow-rgb), 0.2);
+}
+.btn:active:not(:disabled),
+.btn[data-pressed='true'] {
+  transform: translateY(var(--press-depth));
+  filter: brightness(0.95);
+  box-shadow: inset 0 2px 6px rgba(var(--shadow-rgb), 0.3), inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(var(--shadow-rgb), 0.12);
+  transition-duration: 60ms;
+}
+.btn:disabled {
+  opacity: 0.5;
+  filter: grayscale(0.35);
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+}
+.btn svg {
+  flex-shrink: 0;
+}
+
+.btn--primary {
+  --btn-bg: var(--accent);
+  --btn-fg: var(--accent-text);
+}
+.btn--secondary {
+  --btn-bg: rgb(var(--panel-2-rgb));
+  --btn-fg: var(--text);
+  --btn-lip: rgb(var(--line-rgb) / 0.18);
+  --btn-hi: var(--highlight);
+}
+.btn--neutral {
+  --btn-bg: rgb(var(--line-rgb) / 0.1);
+  --btn-fg: var(--text-soft);
+  --btn-lip: rgb(var(--line-rgb) / 0.16);
+}
+.btn--purple {
+  --btn-bg: var(--secondary);
+  --btn-fg: var(--secondary-text);
+  --btn-lip: color-mix(in srgb, var(--secondary) 60%, black);
+}
+.btn--danger {
+  --btn-bg: var(--danger);
+  --btn-fg: #fff8f6;
+  --btn-lip: color-mix(in srgb, var(--danger) 60%, black);
+}
+.btn--ghost {
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-soft);
+  font-weight: 500;
+}
+.btn--ghost:hover:not(:disabled) {
+  background: rgb(var(--line-rgb) / 0.07);
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+.btn--ghost:active:not(:disabled) {
+  background: rgb(var(--line-rgb) / 0.12);
+  box-shadow: none;
+  transform: none;
+}
+
+.btn--sm {
+  height: 34px;
+  padding: 0 var(--space-4);
+  font-size: var(--fs-sm);
+}
+.btn--lg {
+  height: 54px;
+  padding: 0 var(--space-6);
+  font-size: var(--fs-lg);
+}
+.btn--xl {
+  height: 68px;
+  padding: 0 52px;
+  font-size: calc(1.6rem * var(--text-scale));
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.btn--block {
+  width: 100%;
+}
+.btn--play:hover:not(:disabled) {
+  box-shadow: inset 0 1px 0 var(--btn-hi), inset 0 calc(-1 * var(--lip)) 0 var(--btn-lip),
+    var(--shadow-glow), 0 8px 20px rgba(var(--shadow-rgb), 0.22);
+}
+
+.btn__spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Кнопка-иконка */
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-pill);
+  color: var(--text-soft);
+  background: linear-gradient(180deg, color-mix(in srgb, rgb(var(--panel-2-rgb)) 88%, white), rgb(var(--panel-2-rgb)));
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 -3px 0 rgb(var(--line-rgb) / 0.14),
+    0 2px 6px rgba(var(--shadow-rgb), 0.14);
+  transition: transform var(--dur-fast) var(--ease-spring), filter var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+.icon-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.icon-btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: inset 0 2px 5px rgba(var(--shadow-rgb), 0.28);
+}
+.icon-btn:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  transform: none;
+}
+.icon-btn--sm {
+  width: 32px;
+  height: 32px;
+}
+.icon-btn--ghost {
+  background: transparent;
+  box-shadow: none;
+}
+.icon-btn--ghost:hover:not(:disabled) {
+  background: rgb(var(--line-rgb) / 0.08);
+  filter: none;
+}
+
+/* --------------------------- Переключатели --------------------------- */
+
+.toggle {
+  --tw: 48px;
+  --th: 28px;
+  position: relative;
+  flex-shrink: 0;
+  width: var(--tw);
+  height: var(--th);
+  border-radius: var(--r-pill);
+  background: rgb(var(--line-rgb) / 0.16);
+  box-shadow: var(--inset-shadow);
+  transition: background var(--dur-fast) var(--ease-standard);
+  padding: 0;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: calc(var(--th) - 6px);
+  height: calc(var(--th) - 6px);
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fdfbf6, #e8e2d6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 4px rgba(0, 0, 0, 0.25),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.08);
+  transform: translateX(0);
+  transition: transform var(--dur-mid) var(--ease-spring);
+}
+.toggle[aria-checked='true'] {
+  background: var(--accent);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.18), inset 0 -1px 0 rgba(255, 255, 255, 0.18);
+}
+.toggle[aria-checked='true']::after {
+  transform: translateX(calc(var(--tw) - var(--th)));
+}
+.toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.toggle--danger[aria-checked='true'] {
+  background: var(--danger);
+}
+
+.checkbox {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--r-xs);
+  background: rgb(var(--inset-rgb));
+  box-shadow: var(--inset-shadow);
+  display: grid;
+  place-items: center;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.checkbox[aria-checked='true'],
+.checkbox[aria-checked='mixed'] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, white), var(--accent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -2px 0 color-mix(in srgb, var(--accent) 65%, black);
+}
+.checkbox svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent-text);
+}
+.checkbox path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  transition: stroke-dashoffset var(--dur-mid) var(--ease-out);
+}
+.checkbox[aria-checked='true'] path,
+.checkbox[aria-checked='mixed'] path {
+  stroke-dashoffset: 0;
+}
+.checkbox:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.radio {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgb(var(--inset-rgb));
+  box-shadow: var(--inset-shadow);
+  display: grid;
+  place-items: center;
+  transition: box-shadow var(--dur-fast) var(--ease-standard);
+}
+.radio::after {
+  content: '';
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: scale(0);
+  transition: transform var(--dur-mid) var(--ease-spring);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.radio[aria-checked='true'] {
+  box-shadow: var(--inset-shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.radio[aria-checked='true']::after {
+  transform: scale(1);
+}
+.radio:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ------------------------------ Вкладки ------------------------------ */
+
+.tabs {
+  display: inline-flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.tab {
+  height: 40px;
+  padding: 0 var(--space-5);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-soft);
+  background: linear-gradient(180deg, color-mix(in srgb, rgb(var(--panel-2-rgb)) 92%, white), rgb(var(--panel-2-rgb)));
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 -3px 0 rgb(var(--line-rgb) / 0.12),
+    0 2px 5px rgba(var(--shadow-rgb), 0.12);
+  transition: transform var(--dur-fast) var(--ease-spring), background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
+}
+.tab:hover {
+  transform: translateY(-1px);
+  color: var(--text);
+}
+.tab:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 2px 5px rgba(var(--shadow-rgb), 0.25);
+}
+.tab[aria-selected='true'] {
+  color: var(--accent-text);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, white), var(--accent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -3px 0 color-mix(in srgb, var(--accent) 65%, black),
+    0 4px 10px rgba(var(--shadow-rgb), 0.18);
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 4px;
+  gap: 4px;
+  border-radius: var(--r-pill);
+  background: rgb(var(--inset-rgb) / 0.8);
+  box-shadow: var(--inset-shadow);
+}
+.segmented .tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

@@ -1,0 +1,69 @@
+/* ------------------------------ Импорт ------------------------------ */
+
+.import-screen {
+  position: relative;
+}
+.import-screen.is-dragging::after {
+  content: '';
+  position: fixed;
+  inset: 12px;
+  border-radius: var(--r-xl);
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+  z-index: 50;
+}
+.import-drop {
+  position: sticky;
+  top: 8px;
+  z-index: 51;
+  align-self: center;
+  padding: 8px 16px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  box-shadow: var(--shadow-2);
+}
+.import-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.import-launcher {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow: auto;
+}
+.import-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--panel-2-rgb));
+  box-shadow: inset 0 1px 0 var(--highlight-soft);
+}
+.import-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 160px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-soft);
+}
+/* Импорт в списке настроек: слайдеры по ширине */
+.setting-row__control .slider {
+  width: 280px;
+  max-width: 100%;
+}

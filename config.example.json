@@ -1,0 +1,8 @@
+{
+  "microsoftClientId": "",
+  "curseforgeApiKey": "",
+  "aiBaseUrl": "https://api.openai.com/v1",
+  "aiModel": "gpt-4o-mini",
+  "aiApiKey": "",
+  "updateFeedUrl": ""
+}

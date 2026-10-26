@@ -1,0 +1,33 @@
+appId: com.ploxel.launcher
+productName: Ploxel
+copyright: Ploxel launcher, MIT
+directories:
+  output: dist/installer
+  buildResources: build
+files:
+  - dist/main/**
+  - dist/renderer/**
+  - package.json
+  - '!**/*.map'
+extraResources:
+  - from: config.default.json
+    to: config.json
+asar: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  artifactName: Ploxel-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Ploxel
+  uninstallDisplayName: Ploxel launcher
+  artifactName: Ploxel-Setup-${version}.${ext}
+  deleteAppDataOnUninstall: false

@@ -1,0 +1,333 @@
+/* ============================================================
+   Поля ввода, выпадающие списки, ползунки, прогресс
+   ============================================================ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.field__label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--on-bg-muted, var(--text-muted));
+}
+.field__hint {
+  font-size: var(--fs-xs);
+  /* вне панелей — цвет «над фоном», внутри панелей — цвет темы */
+  color: var(--on-bg-muted, var(--text-muted));
+}
+.field__error {
+  font-size: var(--fs-xs);
+  color: var(--danger);
+  animation: rise-in var(--dur-fast) var(--ease-out);
+}
+
+.input-shell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 46px;
+  padding: 0 var(--space-4);
+  border-radius: var(--r-pill);
+  background: rgb(var(--inset-rgb));
+  box-shadow: var(--inset-shadow);
+  transition: box-shadow var(--dur-fast) var(--ease-standard);
+  color: var(--text-muted);
+  min-width: 0;
+}
+.input-shell:focus-within {
+  box-shadow: var(--inset-shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--text-soft);
+}
+.input-shell[data-invalid='true'] {
+  box-shadow: var(--inset-shadow), 0 0 0 2px color-mix(in srgb, var(--danger) 60%, transparent);
+  animation: field-shake var(--dur-mid) var(--ease-standard);
+}
+@keyframes field-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+.input::placeholder {
+  color: var(--text-muted);
+}
+textarea.input {
+  height: auto;
+  min-height: 96px;
+  padding: var(--space-3);
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.input-shell--area {
+  height: auto;
+  border-radius: var(--r-md);
+  padding: 0;
+}
+
+.select-shell {
+  position: relative;
+}
+.select-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 46px;
+  padding: 0 var(--space-4);
+  border-radius: var(--r-pill);
+  background: rgb(var(--panel-2-rgb));
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 -3px 0 rgb(var(--line-rgb) / 0.13),
+    0 2px 6px rgba(var(--shadow-rgb), 0.12);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-standard);
+  text-align: left;
+}
+.select-btn:hover {
+  transform: translateY(-1px);
+}
+.select-btn:active,
+.select-btn[aria-expanded='true'] {
+  transform: translateY(2px);
+  box-shadow: inset 0 2px 5px rgba(var(--shadow-rgb), 0.22);
+}
+.select-btn__value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select-btn__chev {
+  transition: transform var(--dur-mid) var(--ease-standard);
+  color: var(--text-muted);
+}
+.select-btn[aria-expanded='true'] .select-btn__chev {
+  transform: rotate(180deg);
+}
+
+.dropdown {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 100%;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: var(--r-md);
+  background: rgb(var(--panel-rgb));
+  box-shadow: inset 0 1px 0 var(--highlight-soft), var(--shadow-3);
+  border: 1px solid rgb(var(--line-rgb) / 0.07);
+  animation: dropdown-in var(--dur-mid) var(--ease-out);
+}
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+.dropdown__item:hover,
+.dropdown__item[data-active='true'] {
+  background: rgb(var(--line-rgb) / 0.07);
+  color: var(--text);
+}
+.dropdown__item[aria-selected='true'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ------------------------------ Ползунок ------------------------------ */
+
+.slider {
+  --fill: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.slider__track-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 28px;
+}
+.slider input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 10px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--accent) 0 var(--fill), rgb(var(--inset-rgb)) var(--fill) 100%);
+  box-shadow: var(--inset-shadow);
+  outline: none;
+}
+.slider input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fffdf7, #e6dfd1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -3px 0 rgba(120, 106, 86, 0.22),
+    0 3px 8px rgba(var(--shadow-rgb), 0.3);
+  transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-standard);
+  cursor: grab;
+}
+.slider input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.06);
+}
+.slider input[type='range']:active::-webkit-slider-thumb {
+  transform: scale(0.94);
+  cursor: grabbing;
+  box-shadow: inset 0 2px 4px rgba(var(--shadow-rgb), 0.3);
+}
+.slider input[type='range']:disabled {
+  opacity: 0.5;
+}
+.slider__marks {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.slider__value {
+  position: absolute;
+  top: -26px;
+  transform: translateX(-50%);
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: rgb(var(--panel-rgb));
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.slider__track-wrap:hover .slider__value,
+.slider input[type='range']:focus-visible ~ .slider__value {
+  opacity: 1;
+}
+
+/* ------------------------------ Прогресс ------------------------------ */
+
+.progress {
+  position: relative;
+  height: 10px;
+  border-radius: var(--r-pill);
+  background: rgb(var(--inset-rgb));
+  box-shadow: var(--inset-shadow);
+  overflow: hidden;
+}
+.progress--thick {
+  height: 18px;
+}
+.progress__bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 80%, white), var(--accent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: width var(--dur-slow) var(--ease-out);
+  position: relative;
+  overflow: hidden;
+}
+.progress[data-loading='true'] .progress__bar {
+  width: 35% !important;
+  animation: indeterminate 1.4s var(--ease-standard) infinite;
+}
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+.progress__label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  mix-blend-mode: luminosity;
+}
+
+.ring {
+  --p: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--accent) calc(var(--p) * 1%), rgb(var(--inset-rgb)) 0);
+  box-shadow: var(--inset-shadow);
+  position: relative;
+}
+.ring::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: rgb(var(--panel-rgb));
+  box-shadow: var(--shadow-1);
+}
+.ring > span {
+  position: relative;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}.slider__marks--placed {
+  position: relative;
+  height: 1.3em;
+}
+.slider__marks--placed span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+.slider__marks--placed span[data-edge='start'] {
+  transform: none;
+}
+.slider__marks--placed span[data-edge='end'] {
+  transform: translateX(-100%);
+}

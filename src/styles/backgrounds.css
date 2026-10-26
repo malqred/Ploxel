@@ -1,0 +1,336 @@
+/* ------------------------------ Анимированные фоны ------------------------------
+   Цвета — из акцента; двигаются только transform и opacity. Размеры в cqmin:
+   одна сцена и на весь экран, и в превью настроек. */
+
+.anim {
+  --a: var(--accent);
+  --a-soft: color-mix(in srgb, var(--accent) 55%, #ffffff);
+  --a-deep: color-mix(in srgb, var(--accent) 60%, #000000);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  container-type: size;
+  opacity: var(--anim-strength, 0.85);
+  pointer-events: none;
+}
+.bg-layer[data-paused='true'] .anim *,
+.anim-preview[data-paused='true'] .anim * {
+  animation-play-state: paused !important;
+}
+
+/* Северное сияние: большие размытые пятна медленно плывут */
+.anim[data-scene='aurora'] i {
+  position: absolute;
+  width: 75cqmax;
+  height: 75cqmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--a) 75%, transparent), transparent);
+  animation: anim-aurora 28s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.anim[data-scene='aurora'] i:nth-child(1) {
+  left: -20%;
+  top: -30%;
+}
+.anim[data-scene='aurora'] i:nth-child(2) {
+  right: -25%;
+  top: -10%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--a-soft) 70%, transparent), transparent);
+  animation-duration: 34s;
+  animation-delay: -12s;
+}
+.anim[data-scene='aurora'] i:nth-child(3) {
+  left: 10%;
+  bottom: -45%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--a-deep) 80%, transparent), transparent);
+  animation-duration: 40s;
+  animation-delay: -20s;
+}
+.anim[data-scene='aurora'] i:nth-child(4) {
+  right: 5%;
+  bottom: -30%;
+  width: 50cqmax;
+  height: 50cqmax;
+  filter: hue-rotate(35deg);
+  animation-duration: 24s;
+  animation-delay: -6s;
+}
+@keyframes anim-aurora {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(12cqmin, 6cqmin, 0) scale(1.15);
+  }
+  100% {
+    transform: translate3d(-8cqmin, 10cqmin, 0) scale(0.95);
+  }
+}
+
+/* Волны: три слоя бесконечно сдвигаются вбок */
+.anim-wave {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 200%;
+  height: 34%;
+  display: flex;
+  animation: anim-wave 22s linear infinite;
+  will-change: transform;
+}
+.anim-wave svg {
+  width: 50%;
+  height: 100%;
+  display: block;
+}
+.anim-wave path {
+  fill: color-mix(in srgb, var(--a) 30%, transparent);
+}
+.anim-wave[data-layer='1'] {
+  height: 26%;
+  animation-duration: 15s;
+  animation-direction: reverse;
+}
+.anim-wave[data-layer='1'] path {
+  fill: color-mix(in srgb, var(--a-soft) 26%, transparent);
+}
+.anim-wave[data-layer='2'] {
+  height: 18%;
+  animation-duration: 10s;
+}
+.anim-wave[data-layer='2'] path {
+  fill: color-mix(in srgb, var(--a-deep) 40%, transparent);
+}
+@keyframes anim-wave {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* Светлячки: мягко светящиеся точки блуждают и мерцают */
+.anim[data-scene='fireflies'] i {
+  position: absolute;
+  width: calc(1.1cqmin * var(--s, 1));
+  height: calc(1.1cqmin * var(--s, 1));
+  min-width: 3px;
+  min-height: 3px;
+  border-radius: 50%;
+  background: var(--a-soft);
+  box-shadow: 0 0 2cqmin 0.6cqmin color-mix(in srgb, var(--a) 70%, transparent);
+  animation: anim-firefly var(--d, 8s) ease-in-out var(--delay, 0s) infinite alternate;
+}
+@keyframes anim-firefly {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.15;
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--dx, 4cqmin), var(--dy, -4cqmin), 0);
+    opacity: 0.35;
+  }
+}
+
+/* Неоновая сетка: пол в перспективе бежит к горизонту */
+.anim-sun {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  width: 46cqmin;
+  height: 46cqmin;
+  margin-left: -23cqmin;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--a-soft) 55%, transparent), transparent);
+}
+.anim-plane {
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  bottom: 0;
+  height: 62%;
+  overflow: hidden;
+  transform: perspective(60cqh) rotateX(62deg);
+  transform-origin: 50% 100%;
+  mask-image: linear-gradient(180deg, transparent, #000 40%);
+}
+.anim-plane__lines {
+  position: absolute;
+  inset: -10cqmin 0 0 0;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--a) 85%, transparent) 2px, transparent 2px),
+    linear-gradient(90deg, color-mix(in srgb, var(--a) 85%, transparent) 2px, transparent 2px);
+  background-size: 10cqmin 10cqmin;
+  animation: anim-grid 3.5s linear infinite;
+  will-change: transform;
+}
+@keyframes anim-grid {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 10cqmin, 0);
+  }
+}
+
+/* Пиксельный дождь: ступенчатые «капли» из квадратов падают сверху вниз */
+.anim-drop {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.2cqmin;
+  min-width: 3px;
+  opacity: var(--o, 0.7);
+}
+.anim-drop b {
+  position: absolute;
+  inset: 0;
+  animation: anim-rain var(--d, 5s) steps(40) var(--delay, 0s) infinite;
+  will-change: transform;
+}
+.anim-drop b::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 9cqmin;
+  background: repeating-linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--a) 15%, transparent) 0 1.2cqmin,
+    color-mix(in srgb, var(--a) 45%, transparent) 1.2cqmin 2.4cqmin,
+    var(--a-soft) 2.4cqmin 3cqmin
+  );
+}
+@keyframes anim-rain {
+  from {
+    transform: translate3d(0, -12%, 0);
+  }
+  to {
+    transform: translate3d(0, 100%, 0);
+  }
+}
+
+/* Орбиты: кольца вращаются с разной скоростью, на них — светящиеся точки */
+.anim-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20cqmin;
+  height: 20cqmin;
+  margin: -10cqmin 0 0 -10cqmin;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--a-soft) 75%, transparent), transparent);
+}
+.anim-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--r) * 1cqmin);
+  height: calc(var(--r) * 1cqmin);
+  margin: calc(var(--r) * -0.5cqmin) 0 0 calc(var(--r) * -0.5cqmin);
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--a) 32%, transparent);
+  animation: anim-orbit var(--d, 24s) linear infinite;
+  will-change: transform;
+}
+.anim-ring[data-reverse='true'] {
+  animation-direction: reverse;
+}
+.anim-ring i {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1.6cqmin;
+  height: 1.6cqmin;
+  min-width: 4px;
+  min-height: 4px;
+  margin: -0.8cqmin 0 0 -0.8cqmin;
+  border-radius: 50%;
+  background: var(--a-soft);
+  box-shadow: 0 0 2.4cqmin 0.6cqmin color-mix(in srgb, var(--a) 70%, transparent);
+}
+.anim-ring i.anim-ring__far {
+  top: auto;
+  bottom: 0;
+  margin: 0 0 -0.8cqmin -0.8cqmin;
+  background: var(--a);
+}
+@keyframes anim-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------ Выбор фона в настройках ------------------------------ */
+
+.anim-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-2);
+}
+.anim-card {
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: rgb(var(--panel-2-rgb));
+  border: 2px solid transparent;
+  text-align: left;
+  transition: transform var(--dur-fast) var(--ease-spring), border-color var(--dur-fast) var(--ease-standard);
+  box-shadow: inset 0 1px 0 var(--highlight-soft);
+}
+.anim-card:hover {
+  transform: translateY(-2px);
+}
+.anim-card[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+.anim-preview {
+  display: block;
+  position: relative;
+  height: 76px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: rgb(var(--bg-rgb));
+  margin-bottom: 6px;
+  box-shadow: inset 0 0 0 1px rgb(var(--line-rgb) / 0.08);
+}
+.anim-card__name {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.gradient-swatch-wrap {
+  position: relative;
+}
+.gradient-swatch__remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgb(var(--panel-rgb));
+  color: var(--text-muted);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgb(0 0 0 / 0.3));
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+.gradient-swatch-wrap:hover .gradient-swatch__remove,
+.gradient-swatch__remove:focus-visible {
+  opacity: 1;
+}
+.bg-subpanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+.theme-card--custom .theme-card__swatch {
+  position: relative;
+}

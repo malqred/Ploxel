@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.exe
+*.blockmap
+*.log
+config.json
+.env
+Thumbs.db
+.DS_Store
+scripts/ui-strings.json
+scripts/locale-delta/

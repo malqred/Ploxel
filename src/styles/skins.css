@@ -1,0 +1,285 @@
+/* ------------------------------ Скины ------------------------------ */
+
+.skins-layout {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: var(--space-4);
+  /* предпросмотр по высоте редактора */
+  align-items: stretch;
+}
+.skins-grid-lower {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.skin-editor-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-4);
+}
+.skin-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.skin-editor__tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.skin-editor__tools > * {
+  flex-shrink: 0;
+}
+/* подсказка сжимается, кнопки остаются в одну строку */
+.skin-editor__tools > .tiny {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skin-editor__canvas {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--r-md);
+  background: rgb(var(--inset-rgb));
+  image-rendering: pixelated;
+  cursor: crosshair;
+  touch-action: none;
+  box-shadow: var(--inset-shadow);
+}
+.skin-editor__palette {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 4px;
+}
+.palette-dot {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+  transition: transform var(--dur-fast) var(--ease-spring);
+}
+.palette-dot:hover {
+  transform: scale(1.18);
+}
+.palette-dot[aria-pressed='true'] {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+.skin-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-4);
+  border-radius: var(--r-xl);
+  background:
+    radial-gradient(80% 60% at 50% 12%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
+    rgb(var(--panel-rgb) / var(--panel-opacity));
+  box-shadow: inset 0 1px 0 var(--highlight-soft), var(--shadow-2);
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+}
+.skin-stage {
+  width: 100%;
+  flex: 1;
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  perspective: 1100px;
+  cursor: grab;
+  touch-action: none;
+  position: relative;
+  /* при приближении колёсиком модель не вылезает за панель */
+  overflow: hidden;
+  border-radius: var(--r-lg);
+}
+.skin-stage:active {
+  cursor: grabbing;
+}
+.skin-stage[data-panning='true'] {
+  cursor: move;
+}
+.skin-model {
+  position: relative;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.skin-part {
+  position: absolute;
+  transform-style: preserve-3d;
+  transform-origin: 50% 0;
+}
+/* Ходьба как в Minecraft: конечности качаются по синусоиде вокруг плеч и
+   бёдер, правая рука идёт вместе с левой ногой (и наоборот), тело и голова
+   неподвижны. Полный шаг — 1 с; вторая пара сдвинута на полцикла. */
+.skin-part--arm-r,
+.skin-part--arm-l {
+  transform-origin: 50% 16.7%; /* плечо: 2 пикселя от верха руки */
+}
+.skin-model.is-walking .skin-part--arm-r,
+.skin-model.is-walking .skin-part--arm-l {
+  animation: walk-arm 500ms cubic-bezier(0.37, 0, 0.63, 1) infinite alternate;
+}
+.skin-model.is-walking .skin-part--leg-l,
+.skin-model.is-walking .skin-part--leg-r {
+  animation: walk-leg 500ms cubic-bezier(0.37, 0, 0.63, 1) infinite alternate;
+}
+.skin-model.is-walking .skin-part--arm-l,
+.skin-model.is-walking .skin-part--leg-r {
+  animation-delay: -500ms;
+}
+@keyframes walk-arm {
+  from {
+    transform: rotateX(-26deg);
+  }
+  to {
+    transform: rotateX(26deg);
+  }
+}
+/* Знак тот же, что у руки: правая рука и левая нога выходят вперёд вместе */
+@keyframes walk-leg {
+  from {
+    transform: rotateX(-34deg);
+  }
+  to {
+    transform: rotateX(34deg);
+  }
+}
+[data-motion='off'] .skin-model.is-walking .skin-part {
+  animation: none;
+}
+.skin-face {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  backface-visibility: hidden;
+  background-repeat: no-repeat;
+}
+.skin-face--overlay {
+  pointer-events: none;
+}
+/* Объёмный второй слой (как мод 3D Skin Layers): грань-контейнер с картинкой
+   снаружи и стенками вокселей, уходящими внутрь к телу */
+.skin-shell {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+.skin-shell__skin {
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+.skin-voxel {
+  position: absolute;
+  backface-visibility: visible;
+}
+.skin-floor {
+  position: absolute;
+  bottom: 54px;
+  width: 190px;
+  height: 34px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(20, 24, 20, 0.28), transparent 75%);
+  filter: blur(2px);
+}
+.skin-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.skin-placeholder__head {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: rgb(var(--line-rgb) / 0.12);
+}
+.skin-placeholder__body {
+  width: 84px;
+  height: 96px;
+  border-radius: 14px;
+  background: rgb(var(--line-rgb) / 0.08);
+}
+
+.skin-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.layer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  width: 100%;
+}
+.layer-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+}
+
+.skin-library {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+}
+.skin-thumb {
+  aspect-ratio: 1;
+  border-radius: var(--r-sm);
+  background: rgb(var(--inset-rgb));
+  overflow: hidden;
+  padding: 4px;
+  box-shadow: inset 0 0 0 1px rgb(var(--line-rgb) / 0.1);
+  transition: transform var(--dur-fast) var(--ease-spring);
+}
+.skin-thumb:hover {
+  transform: translateY(-2px);
+}
+.skin-thumb[aria-selected='true'] {
+  outline: 2px solid var(--accent);
+}
+.skin-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.cape-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.cape-card {
+  padding: 8px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--panel-2-rgb));
+  box-shadow: inset 0 1px 0 var(--highlight-soft);
+  font-size: var(--fs-xs);
+  text-align: left;
+}
+.cape-card[aria-selected='true'] {
+  outline: 2px solid var(--accent);
+}
+.cape-card img {
+  width: 100%;
+  height: 44px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}

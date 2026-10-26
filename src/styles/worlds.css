@@ -1,0 +1,83 @@
+/* ------------------------------ Миры ------------------------------ */
+
+.worlds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+}
+.world-card {
+  padding: var(--space-3);
+  gap: var(--space-2);
+}
+.world-card__preview {
+  aspect-ratio: 16 / 10;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  position: relative;
+  background: linear-gradient(135deg, #8aa37f, #cdd7b6 60%, #a9b8c9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.12);
+  display: grid;
+  place-items: center;
+}
+.world-card__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+.world-card__preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 55%, rgba(20, 24, 20, 0.35));
+  pointer-events: none;
+}
+.world-card__top {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  z-index: 1;
+}
+.world-card__name {
+  font-weight: 650;
+  font-size: var(--fs-md);
+}
+.world-card__meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.world-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.world-pill {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  background: rgba(20, 24, 20, 0.45);
+  color: #fdf8ee;
+  backdrop-filter: blur(6px);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.world-pill--warn {
+  background: rgba(180, 90, 70, 0.85);
+}
+
+.world-compat {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: var(--fs-xs);
+  color: color-mix(in srgb, var(--warning) 80%, var(--text));
+  line-height: 1.4;
+}

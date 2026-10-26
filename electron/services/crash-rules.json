@@ -1,0 +1,183 @@
+[
+  {
+    "id": "mixin-mod-crash",
+    "title": "Ошибка мода при подмешивании (Mixin)",
+    "patterns": [
+      "Mixin apply failed in (?<mod>[A-Za-z0-9_\\-]+):",
+      "Mixin \\[(?:client|common)\\.mixins\\.json:[^ ]+ from mod (?<mod>[A-Za-z0-9_\\-]+)\\] failed",
+      "MixinApplyError in mod[: ]+(?<mod>[A-Za-z0-9_\\-]+)",
+      "Mixin transformation of [^ ]+ failed"
+    ],
+    "explanation": "Загрузчик (Fabric/Forge/NeoForge) не смог применить модификации мода при старте. Чаще всего это мод, несовместимый с текущей версией игры или загрузчика.",
+    "change": "Отключить указанный мод: файл в папке mods/ переименовывается в .jar.disabled, не удаляется.",
+    "risks": "Функции отключённого мода будут недоступны, пока он не обновлён или не возвращён обратно.",
+    "confidence": "high",
+    "fix": { "type": "disable-mod", "mod": "{{mod}}" }
+  },
+  {
+    "id": "missing-dependency",
+    "title": "Отсутствует зависимость мода",
+    "patterns": [
+      "requires \"(?<dep>[^\"]+)\" \\[[^\\]]*\\].* but (?:it|they) was not found",
+      "[^\\]]+\\[(?<dep>[a-z0-9_\\-]+)\\] (?:version [\\w.\\-]+ )?or higher is missing",
+      "is missing a required dependency",
+      "Missing dependencies?: \\[(?<dep>[^\\]]+)\\]"
+    ],
+    "negativePatterns": ["dependencies? (?:resolved|satisfied)"],
+    "explanation": "Мод требует другой мод (зависимость), которого нет в папке mods/. Без неё игра не стартует.",
+    "change": "Установить недостающую зависимость через вкладку «Моды».",
+    "risks": "Нейтрально: добавляется мод, который требуется текущим модом.",
+    "confidence": "high",
+    "fix": { "type": "install-dependency", "dep": "{{dep}}" }
+  },
+  {
+    "id": "version-mismatch",
+    "title": "Несовместимая версия зависимости",
+    "patterns": [
+      "requires \"(?<dep>[^\"]+)\" \\[[^\\]]*\\] (?:version )?(?<depVersion>[\\w.\\-]+) but version (?<foundVersion>[\\w.\\-]+) was found",
+      "version check failed: \"(?<dep>[^\"]+)\""
+    ],
+    "explanation": "Установлена версия мода, отличная от той, которую требует другая часть сборки.",
+    "change": "Обновить или откатить указанный мод до совместимой версии через вкладку «Моды».",
+    "risks": "Смена версии мода может изменить его поведение.",
+    "confidence": "medium",
+    "fix": { "type": "install-dependency", "dep": "{{dep}}" }
+  },
+  {
+    "id": "duplicate-mods",
+    "title": "Дубликаты модов",
+    "patterns": [
+      "Found duplicate mods?: \\[(?<mods>[^\\]]+)\\]",
+      "Found duplicate mods?: (?<mods>\\S.+)\\s*$",
+      "(?<file>[\\w.\\-]+\\.jar) already exists",
+      "Duplicate mod file: (?<file>[^\\s]+)"
+    ],
+    "explanation": "Один и тот же мод загружен дважды (например, две версии одного файла в mods/). Загрузчик не может решить, какую версию использовать.",
+    "change": "Удалить лишний файл — оставить одну версию мода (через вкладку «Моды»).",
+    "risks": "Нужно выбрать, какую версию оставить.",
+    "confidence": "medium",
+    "fix": { "type": "open-mods-page" }
+  },
+  {
+    "id": "incompatible-mods",
+    "title": "Взаимоисключающие моды",
+    "patterns": [
+      "\"(?<mod>[^\"]+)\" \\[[^\\]]*\\] is incompatible with",
+      "Incompatible mods?: \\[?(?<mods>[^\\n]*)",
+      "has an incompatible mod:"
+    ],
+    "explanation": "Два установленных мода несовместимы друг с другом — их нельзя использовать одновременно.",
+    "change": "Отключить один из конфликтующих модов (через вкладку «Моды»).",
+    "risks": "Функции отключённого мода будут недоступны.",
+    "confidence": "medium",
+    "fix": { "type": "open-mods-page" }
+  },
+  {
+    "id": "out-of-memory",
+    "title": "Нехватка памяти (Java heap space)",
+    "patterns": [
+      "java\\.lang\\.OutOfMemoryError(?:: .*heap space)?",
+      "OutOfMemoryError: (?:Java heap space|Metaspace)",
+      "GC overhead limit exceeded"
+    ],
+    "extractPatterns": [
+      "-Xmx(?<memory>\\d+)(?<memUnit>[gmGM])?",
+      "MaxHeapSize=(?<memoryBytes>\\d+)"
+    ],
+    "explanation": "Игре не хватило выделенной памяти (кучи Java). Процесс остановлен сборщиком мусора или JVM.",
+    "change": "Увеличить значение memoryMb у сборки (в настройках памяти) до рекомендуемого.",
+    "risks": "Выше потребление RAM системы; при нехватке физической памяти может стать хуже.",
+    "confidence": "high",
+    "fix": { "type": "increase-memory" }
+  },
+  {
+    "id": "wrong-java",
+    "title": "Неподходящая версия Java",
+    "patterns": [
+      "UnsupportedClassVersionError",
+      "class file version (?<javaVersion>\\d+\\.\\d+)"
+    ],
+    "explanation": "Часть файлов скомпилирована под другую (новую) версию Java, чем та, что запущена. Классы не загружаются.",
+    "change": "Скачать и выбрать подходящую версию Java (например, из Adoptium) для сборки.",
+    "risks": "Нет: просто меняется JVM, которая используется сборкой.",
+    "confidence": "high",
+    "fix": { "type": "download-java" }
+  },
+  {
+    "id": "loader-mismatch",
+    "title": "Несовместимая версия игры или загрузчика",
+    "patterns": [
+      "Cannot find loader: (?<loader>[^\\s]+)",
+      "Could not find (?:Neo)?[Ff]orge [\\w.]* for Minecraft",
+      "Version mismatch: (?:neo)?(?:forge|fabric|quilt|neoforge)",
+      "(?:Neo)?[Ff]orge (?:Loader |)(?:version )?[\\w.]+ (?:is )?not compatible with Minecraft (?<game>[\\d.]+)"
+    ],
+    "explanation": "Выбранный загрузчик (Forge/Fabric/NeoForge) не подходит под установленную версию Minecraft.",
+    "change": "Выбрать другой загрузчик или версию игры для сборки.",
+    "risks": "Смена загрузчика может потребовать пересборки модов.",
+    "confidence": "medium",
+    "fix": { "type": "switch-loader" }
+  },
+  {
+    "id": "corrupted-files",
+    "title": "Повреждённые файлы (zip/jar)",
+    "patterns": [
+      "invalid LOC header",
+      "zip END header not found",
+      "java\\.util\\.zip\\.ZipException",
+      "Invalid ZIP file",
+      "error in opening zip file"
+    ],
+    "extractPatterns": [
+      "Failed to (?:read|load|open) (?:mod )?file (?<file>[^:\\s]+)",
+      "cannot find (?:class|resource) [^:\\n]+ in (?<file>[^:\\s]+\\.jar)"
+    ],
+    "explanation": "Один из файлов сборки (библиотека, мод или клиент) повреждён или не докачался: повреждена zip-структура файла.",
+    "change": "Перекачать повреждённые файлы сборки (в настройках/менеджере файлов).",
+    "risks": "Нет: файлы просто перезаписываются свежими копиями.",
+    "confidence": "high",
+    "fix": { "type": "redownload-files", "file": "{{file}}" }
+  },
+  {
+    "id": "opengl-driver",
+    "title": "Проблема с OpenGL / драйвером видеокарты",
+    "patterns": [
+      "GLFW error 0x[0-9a-f]+",
+      "(?:Failed|Unable) to initialize GLFW|GLFW failed to initialize",
+      "Pixel format not accelerated",
+      "The current OpenGL context is not"
+    ],
+    "explanation": "Не удалось создать окно или GPU-контекст: драйвер видеокарты устарел, отключено аппаратное ускорение или используется удалённый рабочий стол.",
+    "change": "Обновить драйвер видеокарты и проверить, что в Windows включено аппаратное ускорение (без автофикса).",
+    "risks": "Нет: это рекомендации для системы.",
+    "confidence": "medium"
+  },
+  {
+    "id": "non-ascii-path",
+    "title": "Путь с не-ASCII символами",
+    "patterns": [
+      "Unable to access jarfile [^\\n]*[\\u0080-\\uFFFF]",
+      "InvalidPathException",
+      "Malformed input or input contains unmappable characters",
+      "Invalid UTF-8"
+    ],
+    "explanation": "В пути к папке игры или файлу есть символы, которые JVM не может прочитать в текущей кодировке (например, кириллица). Это ломает запуск.",
+    "change": "Перенести папку данных/сборки в путь только с ASCII-символами (например, C:\\Ploxel).",
+    "risks": "Нужно вручную переместить данные и обновить настройки.",
+    "confidence": "high"
+  },
+  {
+    "id": "corrupted-world",
+    "title": "Повреждённый мир",
+    "patterns": [
+      "Failed to load world",
+      "Corrupted chunk",
+      "CRC32CorruptedException",
+      "java\\.io\\.IOException: Corrupt"
+    ],
+    "explanation": "Файлы мира (чанки/регионы) повреждены. Автофикс не выполняется — возможны потери прогресса: сначала бэкап папки saves/ (сделан автоматически в backups/), затем восстановление из копии.",
+    "change": "Сделать резервную копию папки saves/ и при необходимости восстановить мир из бэкапа (без автофикса).",
+    "risks": "Возможна частичная потеря прогресса в мире.",
+    "confidence": "medium"
+  }
+]

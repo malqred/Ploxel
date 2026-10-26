@@ -1,0 +1,511 @@
+/* ------------------------------ Каталог модов ------------------------------ */
+
+.mods-toolbar {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.mods-toolbar__search {
+  flex: 1;
+  min-width: 240px;
+}
+.mods-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+}
+.catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.mod-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: var(--space-3);
+  cursor: pointer;
+  min-height: 150px;
+  width: 100%;
+}
+.mod-card__top {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  min-width: 0;
+}
+.mod-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+}
+.mod-card__chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.mod-card__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-md);
+  flex-shrink: 0;
+  object-fit: cover;
+  background: linear-gradient(135deg, var(--accent-soft), rgb(var(--inset-rgb)));
+  box-shadow: inset 0 0 0 1px rgb(var(--line-rgb) / 0.08);
+  image-rendering: auto;
+}
+.mod-card__icon--empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+.mod-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.mod-card__title {
+  font-weight: 650;
+  font-size: var(--fs-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mod-card__desc {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mod-card__meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+.mod-card__action {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.notice {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--warning) 14%, rgb(var(--panel-rgb)));
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  box-shadow: inset 0 1px 0 var(--highlight-soft);
+}
+.notice svg {
+  color: var(--warning);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.project-modal__head {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+.project-modal__icon {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--r-md);
+  background: rgb(var(--inset-rgb));
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.project-modal__desc {
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-soft);
+  max-height: 180px;
+  overflow: auto;
+}
+.version-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow: auto;
+}
+.version-pick__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--inset-rgb) / 0.65);
+  font-size: var(--fs-sm);
+  text-align: left;
+  color: var(--text-soft);
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.version-pick__item:hover {
+  background: rgb(var(--line-rgb) / 0.08);
+}
+.version-pick__item[aria-selected='true'] {
+  outline: 2px solid var(--accent);
+}
+.version-pick__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.load-more {
+  display: grid;
+  place-items: center;
+  padding: var(--space-4) 0;
+}
+
+/* ------------------------------ Страница проекта ------------------------------ */
+
+.project-page {
+  width: 100%;
+}
+.project-tabs {
+  margin-top: 2px;
+}
+.project-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+}
+.project-hero__head {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+.project-hero__icon {
+  width: 96px;
+  height: 96px;
+  border-radius: var(--r-lg);
+  object-fit: cover;
+  flex-shrink: 0;
+  background: rgb(var(--inset-rgb));
+  box-shadow: inset 0 1px 0 var(--highlight-soft), var(--shadow-1);
+}
+.project-hero__icon--empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+.project-hero__title {
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  line-height: 1.15;
+}
+.project-hero__summary {
+  font-size: var(--fs-sm);
+  color: var(--text-soft);
+  line-height: 1.55;
+  max-width: 80ch;
+}
+.project-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: var(--space-4);
+  align-items: start;
+  width: 100%;
+}
+.project-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.project-side {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.project-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+.project-gallery img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+}
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-3);
+  align-content: start;
+}
+.gallery-item {
+  padding: 0;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: rgb(var(--inset-rgb));
+  box-shadow: inset 0 1px 0 var(--highlight-soft), var(--shadow-2);
+  cursor: zoom-in;
+  transition: transform var(--dur-mid) var(--ease-out), box-shadow var(--dur-mid) var(--ease-out);
+}
+.gallery-item:hover {
+  transform: translateY(-3px);
+  box-shadow: inset 0 1px 0 var(--highlight-soft), var(--shadow-3);
+}
+.gallery-item img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+}
+
+.versions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.versions-list {
+  display: flex;
+  flex-direction: column;
+}
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px 6px;
+  border-bottom: 1px solid rgb(var(--line-rgb) / 0.08);
+}
+.version-row:last-child {
+  border-bottom: none;
+}
+.version-row__name {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --------------------------- Зависимости --------------------------- */
+
+.dep-root {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dep-root img,
+.dep-root__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: rgb(var(--inset-rgb));
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+.dep-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 340px;
+  overflow: auto;
+}
+.dep-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--panel-2-rgb));
+  box-shadow: inset 0 1px 0 var(--highlight-soft);
+}
+.dep-item[data-optional='true'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgb(var(--line-rgb) / 0.1);
+}
+.dep-item__state {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--success);
+  flex-shrink: 0;
+}
+
+.md-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px rgb(var(--line-rgb) / 0.1);
+}
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.md-table th,
+.md-table td {
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid rgb(var(--line-rgb) / 0.09);
+  vertical-align: top;
+}
+.md-table th {
+  background: rgb(var(--line-rgb) / 0.06);
+  color: var(--text);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.md-table tr:last-child td {
+  border-bottom: none;
+}
+.md-hr {
+  border: none;
+  height: 1px;
+  background: rgb(var(--line-rgb) / 0.14);
+  margin: 6px 0;
+}
+
+.project-body {
+  padding: var(--space-5);
+  min-height: 180px;
+}
+
+/* Markdown */
+.md {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+}
+.md-p {
+  margin: 0;
+}
+.md-h {
+  color: var(--text);
+  font-weight: 650;
+  margin-top: 8px;
+}
+.md-h2 {
+  font-size: var(--fs-xl);
+}
+.md-h3 {
+  font-size: var(--fs-lg);
+}
+.md-h4,
+.md-h5 {
+  font-size: var(--fs-md);
+}
+.md-list {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: disc;
+}
+.md-list li::marker {
+  color: var(--accent);
+}
+.md-code {
+  background: rgb(var(--inset-rgb));
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  box-shadow: var(--inset-shadow);
+}
+.md-inline {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: rgb(var(--line-rgb) / 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.md-quote {
+  margin: 0;
+  padding: 8px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+.md-link {
+  color: var(--accent);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+@media (max-width: 1100px) {
+  .project-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .project-side {
+    position: static;
+  }
+}
+/* ------------------------------ Подбор сборки с ИИ ------------------------------ */
+
+.ai-pick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.ai-pick__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ai-pick__count {
+  margin-left: auto;
+}
+.ai-pick__card {
+  min-height: 120px;
+}
+/* Затемняем содержимое, а не карточку: у карточки своя анимация появления */
+.ai-pick__card .mod-card__icon,
+.ai-pick__card .mod-card__body,
+.ai-pick__card .mod-card__foot {
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+.ai-pick__card[data-off='true'] .mod-card__icon,
+.ai-pick__card[data-off='true'] .mod-card__body,
+.ai-pick__card[data-off='true'] .mod-card__foot {
+  opacity: 0.4;
+}
+.ai-ask__params {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}

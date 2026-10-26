@@ -1,0 +1,367 @@
+/* ============================================================
+   Поверхности: карточки, подсказки, модальные окна, уведомления
+   ============================================================ */
+
+/* ------------------------------ Карточки ------------------------------ */
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--r-lg);
+  background: rgb(var(--panel-rgb) / var(--panel-opacity));
+  box-shadow: inset 0 1px 0 var(--highlight-soft), var(--shadow-2);
+  transition: transform var(--dur-mid) var(--ease-out), box-shadow var(--dur-mid) var(--ease-out),
+    background-color var(--dur-mid) var(--ease-standard);
+  text-align: left;
+  color: inherit;
+}
+.card--hover:hover {
+  transform: translateY(-3px);
+  box-shadow: inset 0 1px 0 var(--highlight-soft), var(--shadow-3);
+}
+.card--hover:active {
+  transform: translateY(0) scale(0.995);
+}
+.card[aria-selected='true'] {
+  box-shadow: inset 0 1px 0 var(--highlight-soft), var(--shadow-3), 0 0 0 2px var(--accent);
+}
+.card__media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--accent-soft), rgb(var(--inset-rgb)));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.card__title {
+  font-size: var(--fs-md);
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+.card__meta {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* ------------------------------ Пилюли ------------------------------ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  background: rgb(var(--line-rgb) / 0.07);
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chip--accent {
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+}
+.chip--purple {
+  background: color-mix(in srgb, var(--secondary) 20%, transparent);
+  color: color-mix(in srgb, var(--secondary) 75%, var(--text));
+}
+.chip--danger {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: color-mix(in srgb, var(--danger) 80%, var(--text));
+}
+.chip--button {
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard);
+}
+.chip--button:hover {
+  transform: translateY(-1px);
+  background: rgb(var(--line-rgb) / 0.12);
+}
+.chip--button[data-active='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ------------------------------ Подсказка ------------------------------ */
+
+.tip {
+  position: fixed;
+  z-index: var(--z-toast);
+  max-width: 260px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--text) 94%, black);
+  color: rgb(var(--panel-rgb));
+  box-shadow: var(--shadow-3);
+  pointer-events: none;
+  animation: tip-in var(--dur-fast) var(--ease-out);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+.tip__title {
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  margin-bottom: 2px;
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------ Модальное окно ------------------------------ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: rgba(var(--shadow-rgb), 0.35);
+  backdrop-filter: blur(6px);
+  animation: fade-in var(--dur-mid) var(--ease-out);
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.modal {
+  width: min(560px, 100%);
+  max-height: 86vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border-radius: var(--r-xl);
+  background: rgb(var(--panel-rgb));
+  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-3);
+  animation: modal-in var(--dur-slow) var(--ease-spring);
+}
+.modal--wide {
+  width: min(820px, 100%);
+}
+.modal--xwide {
+  width: min(1400px, 96vw);
+}
+.modal--full {
+  width: min(1400px, 96vw);
+  height: 92vh;
+  max-height: 92vh;
+}
+.modal--full .modal__body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.modal__title {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+}
+.modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+/* ------------------------------ Уведомления ------------------------------ */
+
+.toasts {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 340px;
+  max-width: calc(100vw - 48px);
+}
+.toast {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-md);
+  background: rgb(var(--panel-rgb));
+  box-shadow: inset 0 1px 0 var(--highlight-soft), var(--shadow-3);
+  animation: toast-in var(--dur-mid) var(--ease-spring);
+  border-left: 4px solid var(--accent);
+}
+.toast[data-kind='error'] {
+  border-left-color: var(--danger);
+}
+.toast[data-kind='warning'] {
+  border-left-color: var(--warning);
+}
+.toast[data-kind='info'] {
+  border-left-color: var(--info);
+}
+.toast__title {
+  font-size: var(--fs-sm);
+  font-weight: 650;
+}
+.toast__desc {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------ Заглушки ------------------------------ */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text-muted);
+}
+.empty__icon {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(var(--line-rgb) / 0.06);
+  color: var(--text-muted);
+}
+.empty__title {
+  font-size: var(--fs-md);
+  font-weight: 650;
+  color: var(--text-soft);
+}
+
+.skeleton {
+  border-radius: var(--r-md);
+  background: linear-gradient(90deg, rgb(var(--line-rgb) / 0.06) 25%, rgb(var(--line-rgb) / 0.12) 37%, rgb(var(--line-rgb) / 0.06) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+/* ------------------------------ Аватар ------------------------------ */
+
+.avatar {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgb(var(--line-rgb) / 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 2px 6px rgba(0, 0, 0, 0.2);
+  display: grid;
+  place-items: center;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.avatar__face {
+  width: 100%;
+  height: 100%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.avatar__face--hat {
+  position: absolute;
+  inset: 0;
+}
+.avatar__dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #67c07f;
+  border: 2px solid rgb(var(--sidebar-rgb));
+}
+
+/* ------------------------------ Прочее ------------------------------ */
+
+.kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgb(var(--line-rgb) / 0.07);
+  box-shadow: inset 0 -2px 0 rgb(var(--line-rgb) / 0.1);
+}
+
+.tooltip-host {
+  position: relative;
+  display: inline-flex;
+}
