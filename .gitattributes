@@ -1,0 +1,7 @@
+# Единые переводы строк в репозитории (LF), картинки и установщики — бинарные
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.exe binary
+*.ttf binary
+*.woff2 binary
