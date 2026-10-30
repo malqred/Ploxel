@@ -22,7 +22,7 @@ export interface GradientDef {
   custom?: boolean;
 }
 
-export type BackgroundKind = 'theme' | 'solid' | 'gradient' | 'animated';
+export type BackgroundKind = 'theme' | 'solid' | 'gradient' | 'animated' | 'media';
 
 export interface BackgroundSettings {
   kind: BackgroundKind;
@@ -34,6 +34,11 @@ export interface BackgroundSettings {
   animatedId: string;
   /** 0..1 — насыщенность анимированного фона */
   intensity: number;
+  /** для kind = media: файл в папке backgrounds (картинка, GIF или видео) */
+  mediaFile?: string;
+  mediaType?: 'image' | 'video';
+  /** 0..1 — затемнение своего фона подложкой темы */
+  mediaDim?: number;
 }
 
 export interface AppearanceSettings {
@@ -149,11 +154,12 @@ export interface AppInfo {
 
 export interface Account {
   id: string;
-  type: 'microsoft' | 'offline';
+  /** elyby — аккаунт Ely.by: свои скины через authlib-injector */
+  type: 'microsoft' | 'offline' | 'elyby';
   name: string;
   uuid: string;
   createdAt: string;
-  /** только для microsoft: срок действия токена */
+  /** microsoft и elyby: срок действия токена */
   expiresAt?: string;
   skinUrl?: string;
 }
@@ -199,6 +205,8 @@ export interface InstalledMod {
   sha1?: string;
   /** Отпечаток файла для CurseForge (MurmurHash2) */
   fingerprint?: number;
+  /** когда файл без источника последний раз искали в каталогах (ISO) */
+  identifiedAt?: string;
   kind: 'mod' | 'resourcepack' | 'shader' | 'modpack';
   projectId?: string;
   source: 'modrinth' | 'curseforge' | 'local';
@@ -211,6 +219,19 @@ export interface InstalledMod {
   previousVersion?: string;
   previousVersionId?: string;
   previousSha1?: string;
+}
+
+/** Снимок экрана сборки (папка screenshots). */
+export interface ScreenshotInfo {
+  file: string;
+  takenAt: string;
+  /** название мира или адрес сервера */
+  world?: string;
+  /** снимок сделан на сервере */
+  server?: boolean;
+  /** мир угадан по времени (снимок сделан до того, как лаунчер начал их отмечать) */
+  guessed?: boolean;
+  size: number;
 }
 
 export interface DownloadTask {
@@ -473,6 +494,11 @@ export interface ImportResult {
   importedMods: number;
   importedWorlds: number;
   warnings: string[];
+  /** откуда перенесли и можно ли убрать сборку в старом лаунчере */
+  sourcePath?: string;
+  launcherName?: string;
+  sourceSize?: number;
+  sourceDeletable?: boolean;
 }
 
 /* ------------------------------ Прочее ------------------------------ */

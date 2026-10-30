@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeftRight,
   BookOpen,
+  Camera,
+  Clock,
+  Image as ImageIcon,
   Bot,
   Boxes,
   Coffee,
@@ -29,7 +33,7 @@ import {
 import { api } from '../../api';
 import { EmptyState } from '../../ui/Common';
 import { GuidesModal } from './GuidesModal';
-import { GUIDES, SETTINGS_LINKS, fuzzyMatch, searchGuides, tokens, type Guide } from '../../content/guides';
+import { GUIDES, SETTINGS_LINKS, fuzzyMatch, readMinutes, searchGuides, suggestQueries, tokens, type Guide } from '../../content/guides';
 import type { CatalogSearchResult, Instance } from '../../../shared/types';
 
 const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
@@ -54,7 +58,19 @@ const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
   keyboard: Keyboard,
   settings: SettingsIcon,
   trash: Trash2,
-  search: Search
+  search: Search,
+  image: ImageIcon,
+  camera: Camera,
+  clock: Clock,
+  arrows: ArrowLeftRight
+};
+
+const SUGGEST_ICON: Record<string, React.ReactNode> = {
+  query: <Search size={12} />,
+  guide: <BookOpen size={12} />,
+  setting: <SettingsIcon size={12} />,
+  instance: <Layers size={12} />,
+  mod: <Package size={12} />
 };
 
 export function GuideIcon({ name, size = 20 }: { name: string; size?: number }) {
@@ -73,6 +89,32 @@ export function LauncherSearch({
   const [mods, setMods] = useState<CatalogSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [allGuides, setAllGuides] = useState(false);
+  // Гайдов на главной — ровно две полные строки сетки при любой ширине окна
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(5);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const measure = () => {
+      const cols = getComputedStyle(el).gridTemplateColumns.split(' ').filter(Boolean).length;
+      if (cols > 0) setColumns(cols);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [query.trim() === '']);
+
+  // Индекс гайдов строится при первом поиске (~200 мс) — строим заранее, пока окно простаивает,
+  // чтобы первая буква в строке поиска не подтормаживала
+  useEffect(() => {
+    const warm = () => {
+      searchGuides('мод');
+      suggestQueries('мо');
+    };
+    const id = window.requestIdleCallback(warm, { timeout: 3000 });
+    return () => window.cancelIdleCallback(id);
+  }, []);
 
   useEffect(() => {
     const q = query.trim();
@@ -103,6 +145,11 @@ export function LauncherSearch({
 
   const q = query.trim().toLowerCase();
   const foundGuides = useMemo(() => (q ? searchGuides(query, 6) : []), [query]);
+  // Подсказки, пока слово не дописано: частые вопросы, гайды, настройки, сборки и моды
+  const suggestions = useMemo(
+    () => suggestQueries(query, instances.map((i) => ({ text: i.name, kind: 'instance' as const })), 6),
+    [query, instances]
+  );
   const foundInstances = useMemo(
     () =>
       q
@@ -136,9 +183,35 @@ export function LauncherSearch({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Поиск по лаунчеру: сборки, моды, настройки, гайды…"
           autoComplete="off"
+          onKeyDown={(e) => {
+            // Tab подставляет первую подсказку
+            if (e.key === 'Tab' && !e.shiftKey && suggestions[0]) {
+              e.preventDefault();
+              setQuery(suggestions[0].text);
+            }
+          }}
         />
         {loading && <span className="btn__spinner" style={{ color: 'var(--accent)' }} />}
       </div>
+      {q && suggestions.length > 0 && (
+        <div className="search-suggest" role="listbox" aria-label="Подсказки">
+          <span className="tiny muted">Возможно, вы ищете:</span>
+          {suggestions.map((s, i) => (
+            <button
+              key={s.kind + s.text}
+              type="button"
+              role="option"
+              aria-selected={i === 0}
+              className="search-suggest__chip"
+              title={i === 0 ? 'Tab — подставить' : undefined}
+              onClick={() => setQuery(s.text)}
+            >
+              {SUGGEST_ICON[s.kind]}
+              {s.text}
+            </button>
+          ))}
+        </div>
+      )}
 
       {!q && (
         <div className="col" style={{ gap: 12 }} data-tour="guides">
@@ -148,15 +221,15 @@ export function LauncherSearch({
               {GUIDES.length} материалов <ChevronRight size={14} />
             </button>
           </div>
-          <div className="guide-grid">
-            {GUIDES.slice(0, 6).map((guide) => (
+          <div className="guide-grid" ref={gridRef}>
+            {GUIDES.slice(0, columns * 2).map((guide) => (
               <button key={guide.id} className="guide-card card card--hover" onClick={() => onOpenGuide(guide)}>
                 <span className="guide-card__icon">
                   <GuideIcon name={guide.icon} size={18} />
                 </span>
                 <span className="guide-card__title">{guide.title}</span>
                 <span className="guide-card__summary">{guide.summary}</span>
-                <span className="tiny muted">{`${guide.minutes} мин`}</span>
+                <span className="tiny muted">{`${readMinutes(guide)} мин`}</span>
               </button>
             ))}
           </div>

@@ -6,6 +6,7 @@ import { Tabs } from '../../ui/Controls';
 import { SearchField, Select } from '../../ui/TextField';
 import { EmptyState } from '../../ui/Common';
 import { useToast } from '../../state/toast';
+import { useSettings } from '../../state/settings';
 import { fmtNumber } from '../../i18n';
 import type { CatalogProject, CatalogSearchResult, CatalogVersion, Instance, InstalledMod } from '../../../shared/types';
 
@@ -65,7 +66,10 @@ export function CatalogBrowser({
   onOpenProject: (project: CatalogProject, kind: ContentType) => void;
   onInstalled?: () => void;
 }) {
-  const source: Source = 'modrinth';
+  const { info } = useSettings();
+  // CurseForge работает только с ключом из config.json; без него вкладка выключена
+  const cfAvailable = !!info?.config.curseforgeKey;
+  const [source, setSource] = useState<Source>('modrinth');
   const [type, setType] = useState<ContentType>(initialType);
   const [query, setQuery] = useState(initialQuery);
   const [gameVersion, setGameVersion] = useState('');
@@ -73,6 +77,9 @@ export function CatalogBrowser({
   const [category, setCategory] = useState('');
   const [sort, setSort] = useState<'relevance' | 'downloads' | 'newest' | 'updated'>('relevance');
   const [results, setResults] = useState<CatalogSearchResult | null>(null);
+  // При смене каталога карточки прошлого не остаются на экране, пока грузится новый:
+  // иначе клик по ним открывал бы проект не из того каталога
+  useEffect(() => setResults(null), [source]);
   const [loading, setLoading] = useState(false);
   const [allVersions, setAllVersions] = useState<string[]>([]);
   const requestId = useRef(0);
@@ -170,7 +177,7 @@ export function CatalogBrowser({
           query,
           gameVersion: gameVersion || undefined,
           loader: loader || undefined,
-          category: source === 'modrinth' ? category || undefined : undefined,
+          category: category || undefined,
           sort,
           offset: 0,
           limit: 24
@@ -197,7 +204,7 @@ export function CatalogBrowser({
       query,
       gameVersion: gameVersion || undefined,
       loader: loader || undefined,
-      category: source === 'modrinth' ? category || undefined : undefined,
+      category: category || undefined,
       sort,
       offset,
       limit: 24
@@ -217,12 +224,17 @@ export function CatalogBrowser({
     <div className="catalog">
       <div className="row wrap" style={{ gap: 10 }}>
         <div className="segmented" aria-label="Источник">
-          <button className="tab" aria-selected>
+          <button className="tab" aria-selected={source === 'modrinth'} onClick={() => setSource('modrinth')}>
             Modrinth
           </button>
-          {/* CurseForge временно выключен: каталог появится в одной из следующих версий */}
-          <button className="tab" aria-selected={false} disabled title="CurseForge появится в одной из следующих версий">
-            CurseForge <Lock size={12} />
+          <button
+            className="tab"
+            aria-selected={source === 'curseforge'}
+            disabled={!cfAvailable}
+            title={cfAvailable ? undefined : 'Каталог CurseForge недоступен: в config.json не задан ключ CurseForge'}
+            onClick={() => setSource('curseforge')}
+          >
+            CurseForge {!cfAvailable && <Lock size={12} />}
           </button>
         </div>
         <Tabs

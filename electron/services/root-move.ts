@@ -1,3 +1,4 @@
+import { ROOT_ENTRIES } from '../core/uninstall';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -119,17 +120,9 @@ export async function freeSpaceAt(target: string): Promise<number | null> {
 
 /** Посторонние файлы в старой папке — тогда её не удаляем. */
 async function onlyKnownEntries(dir: string): Promise<boolean> {
-  const known = new Set([
-    'data',
-    'instances',
-    'logs',
-    'cache',
-    'downloads',
-    'backups',
-    'settings.json',
-    'settings.json.tmp',
-    'root.json'
-  ]);
+  // Тот же список, что и у удаления лаунчера: раньше здесь не было skins, secrets,
+  // accounts.json и playtime.json — папка skins есть всегда, и старая копия не удалялась никогда
+  const known = new Set<string>([...ROOT_ENTRIES, 'settings.json.tmp', 'accounts.json.tmp', 'playtime.json.tmp', 'root.json']);
   try {
     const entries = await fsp.readdir(dir);
     return entries.every((name) => known.has(name));

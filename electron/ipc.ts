@@ -30,7 +30,8 @@ import {
 import { loadSettings as readSettings } from './services/settings';
 import { searchCatalog, catalogVersions, catalogProject, isCurseForgeAvailable } from './services/catalog';
 import * as mods from './services/mods';
-import { installModpackFromProject, installModpackArchive, exportMrpack, exportCurseForgeZip, manualModsCount } from './services/modpack';
+import { memoryAdviceFor } from './services/memory-advice';
+import { installModpackFromProject, installModpackFileWithTask, exportMrpack, exportCurseForgeZip, manualModsCount } from './services/modpack';
 import { analyzeLog, aiAvailable, sanitizeLog, testAi, chat } from './services/ai';
 import { pickBuild, pickImprove, startAssemble, startImprove, type AiPickInput, type AssembleItem, type AssembleSpec } from './services/ai-build';
 import { getModrinthProjectBriefs } from './services/modrinth';
@@ -43,12 +44,16 @@ import type { DependencyPlan } from '../shared/types';
 import {
   detectLaunchers,
   importDetected,
+  deleteImportedSource,
   importArchive,
   detectArchiveFormat,
   matchMods
 } from './services/launcher-import';
 import type { CrashCause } from '../shared/types';
 import { listWorlds, importWorld, exportWorld, worldFolder } from './services/worlds';
+import { clearBackgrounds, pickBackground } from './services/local-media';
+import * as screenshots from './services/screenshots';
+import { loginElyBy, signOutElyBy } from './services/elyby';
 import { importMinecraftFolder } from './services/minecraft-import';
 import fsSync from 'node:fs';
 import * as skins from './services/skins';
@@ -95,6 +100,8 @@ export function registerIpc(): void {
     return next;
   });
 
+  // Память компьютера сейчас — для полоски над ползунком памяти
+  handle('system:memory', () => ({ totalMb: Math.round(os.totalmem() / 1048576), freeMb: Math.round(os.freemem() / 1048576) }));
   handle('app:info', (): AppInfo => {
     const cfg = getConfig();
     return {
@@ -147,6 +154,12 @@ export function registerIpc(): void {
   });
 
   handle('shell:openPath', async (target: string) => shell.openPath(target));
+  handle('appearance:pickBackground', () => pickBackground(BrowserWindow.getFocusedWindow()));
+  handle('appearance:clearBackground', () => clearBackgrounds());
+  handle('screenshots:list', (instanceId: string) => screenshots.listScreenshots(instanceId));
+  handle('screenshots:saveAs', (instanceId: string, file: string) => screenshots.saveScreenshotAs(instanceId, file));
+  handle('screenshots:show', (instanceId: string, file: string) => screenshots.showScreenshotInFolder(instanceId, file));
+  handle('screenshots:delete', (instanceId: string, file: string) => screenshots.deleteScreenshot(instanceId, file));
   handle('shell:openExternal', async (url: string) => {
     if (/^https:\/\//.test(url)) await shell.openExternal(url);
   });
@@ -212,8 +225,13 @@ export function registerIpc(): void {
   handle('instances:update', (id: string, patch: Partial<Instance>) => instances.updateInstance(id, patch));
   handle('instances:delete', (id: string) => instances.deleteInstance(id));
   handle('instances:duplicate', (id: string) => instances.duplicateInstance(id));
-  handle('instances:folder', async (id: string) => {
-    const dir = await instances.openInstanceFolder(id);
+  handle('instances:folder', async (id: string, sub?: string) => {
+    let dir = await instances.openInstanceFolder(id);
+    // Только известные подпапки сборки (например, снимки)
+    if (sub === 'screenshots') {
+      dir = path.join(dir, sub);
+      await fsp.mkdir(dir, { recursive: true });
+    }
     await shell.openPath(dir);
     return dir;
   });
@@ -247,6 +265,7 @@ export function registerIpc(): void {
     return link;
   });
   handle('instances:mods', (id: string) => mods.scanMods(id));
+  handle('instances:memoryAdvice', (id: string) => memoryAdviceFor(id));
 
   /* ------------------------------ Аккаунты ------------------------------ */
 
@@ -258,7 +277,8 @@ export function registerIpc(): void {
     broadcast('accounts:changed');
     return acc;
   });
-  handle('accounts:remove', (id: string) => {
+  handle('accounts:remove', async (id: string) => {
+    if (accounts.getStoredAccount(id)?.type === 'elyby') await signOutElyBy(id);
     const list = accounts.removeAccount(id);
     broadcast('accounts:changed');
     return list;
@@ -274,6 +294,17 @@ export function registerIpc(): void {
     return count;
   });
   handle('auth:ms:start', () => microsoft.startDeviceLogin());
+  // Ely.by: пароль только передаётся на authserver.ely.by и нигде не сохраняется
+  handle('auth:ely:login', async (login: string, password: string, totp?: string) => {
+    try {
+      const acc = await loginElyBy(String(login ?? ''), String(password ?? ''), totp ? String(totp) : undefined);
+      broadcast('accounts:changed');
+      return { ok: true, account: acc };
+    } catch (e) {
+      // Код ошибки нужен окну: на TOTP оно покажет поле для кода
+      return { ok: false, code: (e as { code?: string }).code ?? 'AUTH', message: e instanceof Error ? e.message : String(e) };
+    }
+  });
   handle('auth:ms:poll', async (deviceCode: string, interval: number, tenant?: string) => {
     const acc = await microsoft.waitForLogin(deviceCode, Number(interval) || 5, tenant || 'common');
     broadcast('accounts:changed');
@@ -352,6 +383,7 @@ export function registerIpc(): void {
 
   handle('import:detect', (extraPaths?: string[]) => detectLaunchers({ extraPaths }));
   handle('import:run', (info: unknown, options: unknown) => importDetected(info as never, options as never));
+  handle('import:deleteSource', (sourcePath: string) => deleteImportedSource(sourcePath));
   handle('import:archive', async (file?: string, options?: unknown) => {
     let target = file;
     if (!target) {
@@ -418,6 +450,9 @@ export function registerIpc(): void {
             await mods.updateMod(instanceId, String(action.payload.modId), fresh);
             results.push({ issueId: action.issueId, action: action.action, status: 'applied' });
           }
+        } else if (action.action === 'enable-mod') {
+          await mods.setModEnabled(instanceId, String(action.payload.modId), true);
+          results.push({ issueId: action.issueId, action: action.action, status: 'applied' });
         } else if (action.action === 'disable-mod') {
           await mods.setModEnabled(instanceId, String(action.payload.modId), false);
           results.push({ issueId: action.issueId, action: action.action, status: 'applied' });
@@ -485,6 +520,9 @@ export function registerIpc(): void {
     mods.setModEnabled(instanceId, modId, enabled)
   );
   handle('mods:remove', (instanceId: string, modId: string) => mods.removeMod(instanceId, modId));
+  handle('mods:transfer', (fromId: string, modId: string, toId: string, opts: { keepCopy?: boolean }) =>
+    mods.transferMod(fromId, modId, toId, opts)
+  );
   handle('mods:install', async (instanceId: string, source: 'modrinth' | 'curseforge', projectId: string, kind: InstalledMod['kind'], opts: { versionId?: string; projectName?: string; projectIcon?: string }) => {
     const instance = instances.readInstance(instanceId);
     if (!instance) throw new Error('Сборка не найдена');
@@ -522,10 +560,10 @@ export function registerIpc(): void {
       properties: ['openFile']
     });
     if (res.canceled || !res.filePaths[0]) return null;
-    return installModpackArchive(res.filePaths[0], () => {});
+    return installModpackFileWithTask(res.filePaths[0]);
   });
   handle('modpack:manualMods', (instanceId: string) => manualModsCount(instanceId));
-  handle('modpack:importFile', (file: string) => installModpackArchive(file, () => {}));
+  handle('modpack:importFile', (file: string) => installModpackFileWithTask(file));
   handle('modpack:export', async (instanceId: string, target?: string) => {
     const dest =
       target ??

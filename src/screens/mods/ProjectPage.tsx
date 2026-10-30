@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ImageViewer } from '../../ui/ImageViewer';
 import { ArrowLeft, Calendar, Download, ExternalLink, Languages, PackageCheck, Plus, Users } from 'lucide-react';
 import { api } from '../../api';
 import { Button, IconButton } from '../../ui/Button';
@@ -74,6 +75,7 @@ export function ProjectPage({
   const [translated, setTranslated] = useState<{ summary: string; body: string; provider: string; truncated: boolean } | null>(null);
   const [snapshots, setSnapshots] = useState(false);
   const [previewVersion, setPreviewVersion] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<number | null>(null);
   const { toast } = useToast();
   const language = settings?.general.language ?? 'ru';
 
@@ -396,11 +398,11 @@ export function ProjectPage({
               </div>
             ) : (
               <div className="gallery-grid">
-                {gallery.map((src) => (
+                {gallery.map((src, idx) => (
                   <button
                     key={src}
                     className="gallery-item"
-                    onClick={() => api.shell.openExternal(src)}
+                    onClick={() => setViewing(idx)}
                     title="Открыть изображение"
                   >
                     <img src={src} alt="" loading="lazy" />
@@ -589,6 +591,12 @@ export function ProjectPage({
           }
           onInstalled();
         }}
+      />
+      <ImageViewer
+        images={gallery.map((src) => ({ src }))}
+        index={viewing}
+        onIndex={setViewing}
+        onClose={() => setViewing(null)}
       />
     </div>
   );

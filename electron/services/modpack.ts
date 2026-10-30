@@ -1,21 +1,24 @@
 import fs from 'node:fs';
-import { getCurseForgeFileDownloads, hasCurseForgeKey } from './curseforge';
+import { getCurseForgeFileDownloads, getCurseForgeMods, hasCurseForgeKey } from './curseforge';
+import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { instanceDir, p } from './paths';
 import { createInstance, deleteInstance, readInstance, writeInstance } from './instances';
-import { scanMods } from './mods';
-import { downloadMany } from './downloader';
+import { persistMods, scanMods } from './mods';
+import { createTask, downloadMany, finishTask, updateTask } from './downloader';
+import { modpackPercent } from '../../shared/progress';
 import { installLoader } from './loaders';
+import { appendLog } from './logs';
 import { catalogVersions } from './catalog';
-import type { Instance, LoaderKind, LoaderSpec } from '../../shared/types';
+import type { CatalogVersion, InstalledMod, Instance, LoaderKind, LoaderSpec } from '../../shared/types';
 
 interface MrpackIndex {
   formatVersion: number;
   name: string;
   versionId: string;
-  files: { path: string; hashes: { sha1?: string }; downloads: string[]; fileSize?: number; env?: { client?: string } }[];
+  files: { path: string; hashes: { sha1?: string; sha512?: string }; downloads: string[]; fileSize?: number; env?: { client?: string } }[];
   dependencies: Record<string, string>;
 }
 
@@ -48,6 +51,19 @@ export interface ModpackInstallProgress {
   (phase: string, done: number, total: number): void;
 }
 
+/**
+ * Загрузчик ставим сразу, но без него модпак всё равно устанавливается: сервер
+ * загрузчика бывает недоступен, а при первом запуске лаунчер поставит его сам.
+ */
+async function installLoaderSoft(instanceId: string, gameVersion: string, kind: LoaderKind, version: string): Promise<void> {
+  try {
+    await installLoader(gameVersion, kind, version);
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    appendLog(instanceId, `Загрузчик ${kind} ${version} не установился сейчас (${reason}) — он установится при первом запуске.`, 'launcher');
+  }
+}
+
 /** Установка модпака Modrinth (.mrpack). */
 export async function installMrpack(
   file: string,
@@ -71,7 +87,7 @@ export async function installMrpack(
   return withCleanup(instance, async () => {
     if (loader.kind !== 'vanilla' && loader.version) {
       onProgress(`Установка ${loader.kind}`, 0, 1);
-      await installLoader(gameVersion, loader.kind as LoaderKind, loader.version);
+      await installLoaderSoft(instance.id, gameVersion, loader.kind as LoaderKind, loader.version);
     }
 
     const items = index.files
@@ -103,7 +119,7 @@ export async function installMrpack(
  * CurseForge, скачиваем эти файлы сами; что не скачалось (автор запретил
  * сторонние загрузки) — так и останется в окне со ссылками.
  */
-async function fetchCurseForgeOnlyMods(dir: string, signal?: AbortSignal): Promise<void> {
+export async function fetchCurseForgeOnlyMods(dir: string, signal?: AbortSignal): Promise<void> {
   const listFile = path.join(dir, 'config', 'missing_mods_checker.json');
   if (!fs.existsSync(listFile) || !hasCurseForgeKey()) return;
   let list: { pattern?: string; url?: string; destination?: string }[];
@@ -135,6 +151,47 @@ async function withCleanup(instance: Instance, fn: () => Promise<Instance>): Pro
     await deleteInstance(instance.id).catch(() => undefined);
     throw e;
   }
+}
+
+/**
+ * Записывает скачанные файлы модпака как моды из CurseForge (проект, файл, название, иконка):
+ * иначе они выглядели бы «своими файлами» без обновлений, а повторный экспорт
+ * для CurseForge клал бы их внутрь архива вместо ссылок.
+ */
+async function recordCurseForgeFiles(
+  instanceId: string,
+  files: { fileName: string; projectId: string; fileId: string; sha1?: string; enabled: boolean }[]
+): Promise<void> {
+  if (!files.length) return;
+  const projects = new Map(
+    (await getCurseForgeMods([...new Set(files.map((f) => f.projectId))]).catch(() => [])).map((pr) => [pr.id, pr])
+  );
+  const now = new Date().toISOString();
+  const records: InstalledMod[] = files.map((f) => {
+    const project = projects.get(f.projectId);
+    return {
+      id: crypto.randomUUID(),
+      instanceId,
+      fileName: f.fileName,
+      name: project?.title ?? f.fileName.replace(/\.jar$/i, ''),
+      version: f.fileName.replace(/\.jar$/i, ''),
+      versionId: f.fileId,
+      sha1: f.sha1,
+      kind: 'mod',
+      projectId: f.projectId,
+      source: 'curseforge',
+      enabled: f.enabled,
+      iconUrl: project?.iconUrl,
+      installedAt: now
+    };
+  });
+  // required: false в манифесте — мод был выключен; выключаем и здесь
+  const modsDir = path.join(instanceDir(instanceId), 'mods');
+  for (const r of records.filter((x) => !x.enabled)) {
+    await fsp.rename(path.join(modsDir, r.fileName), path.join(modsDir, `${r.fileName}.disabled`)).catch(() => undefined);
+  }
+  const others = scanMods(instanceId).filter((m) => !records.some((r) => r.fileName === m.fileName));
+  await persistMods(instanceId, [...others, ...records]);
 }
 
 /** Установка модпака CurseForge (zip с manifest.json). */
@@ -177,13 +234,15 @@ export async function installCurseForgePack(
   return withCleanup(instance, async () => {
     if (loader.kind !== 'vanilla' && loader.version) {
       onProgress(`Установка ${loader.kind}`, 0, 1);
-      await installLoader(manifest.minecraft.version, loader.kind as LoaderKind, loader.version);
+      await installLoaderSoft(instance.id, manifest.minecraft.version, loader.kind as LoaderKind, loader.version);
     }
 
     const modsDir = path.join(instanceDir(instance.id), 'mods');
     await fsp.mkdir(modsDir, { recursive: true });
     const items = [];
     const manual: string[] = [];
+    // Откуда каждый файл: проект и файл CurseForge известны из манифеста
+    const known: { fileName: string; projectId: string; fileId: string; sha1?: string; enabled: boolean }[] = [];
     onProgress('Файлы модпака', 0, manifest.files.length);
     // Сведения о файлах — пачками по 100 одним запросом
     const files = await getCurseForgeFileDownloads(manifest.files.map((f) => f.fileID));
@@ -199,8 +258,10 @@ export async function installCurseForgePack(
         continue;
       }
       items.push({ url: info.downloadUrl, dest: path.join(modsDir, info.fileName), sha1: info.sha1, size: info.size });
+      known.push({ fileName: info.fileName, projectId: String(f.projectID), fileId: String(f.fileID), sha1: info.sha1, enabled: f.required !== false });
     }
     await downloadMany(items, { signal, concurrency: 3, onProgress: (d, t) => onProgress('Файлы модпака', d, t) });
+    await recordCurseForgeFiles(instance.id, known);
 
     const overrides = manifest.overrides || 'overrides';
     extractDir(zip, `${overrides}/`, instanceDir(instance.id));
@@ -229,6 +290,30 @@ export async function installModpackArchive(file: string, onProgress: ModpackIns
   throw new Error('Неизвестный формат модпака: ожидается .mrpack или zip с manifest.json');
 }
 
+/**
+ * Установка модпака одной задачей в загрузках: общий процент идёт по этапам
+ * (архив → загрузчик → файлы модпака → настройки), а не по последнему файлу.
+ */
+export async function withModpackTask<T>(title: string, run: (onProgress: ModpackInstallProgress) => Promise<T>): Promise<T> {
+  const taskId = createTask(title, 'Подготовка');
+  updateTask(taskId, { status: 'running', total: 100, done: 0 });
+  try {
+    const result = await run((phase, done, total) => {
+      updateTask(taskId, { detail: total > 1 ? `${phase}: ${done} из ${total}` : phase, done: modpackPercent(phase, done, total), total: 100 });
+    });
+    finishTask(taskId);
+    return result;
+  } catch (e) {
+    finishTask(taskId, e instanceof Error ? e.message : String(e));
+    throw e;
+  }
+}
+
+/** Установка модпака из файла — с задачей в загрузках. */
+export function installModpackFileWithTask(file: string): Promise<Instance> {
+  return withModpackTask(`Модпак «${path.basename(file).replace(/\.(mrpack|zip)$/i, '')}»`, (onProgress) => installModpackArchive(file, onProgress));
+}
+
 /** Установка модпака прямо из каталога. */
 export async function installModpackFromProject(
   source: 'modrinth' | 'curseforge',
@@ -241,12 +326,43 @@ export async function installModpackFromProject(
   const file = target.files.find((f) => f.primary && f.fileName.endsWith('.mrpack')) ?? target.files[0];
   if (!file) throw new Error('У модпака нет файла для скачивания');
   const dest = p('downloads', file.fileName);
-  await downloadMany([{ url: file.url, dest, sha1: file.hashes?.sha1, size: file.size }], {
-    onProgress: () => {}
+  const title = `Модпак «${file.fileName.replace(/\.(mrpack|zip)$/i, '')}»`;
+  return withModpackTask(title, async (onProgress) => {
+    onProgress('Скачивание модпака', 0, 1);
+    await downloadMany([{ url: file.url, dest, sha1: file.hashes?.sha1, size: file.size }], {
+      onProgress: () => {}
+    });
+    const instance = await installModpackArchive(dest, onProgress);
+    await writeInstance({ ...instance, source: { kind: source, projectId, versionId: target.id } });
+    onProgress('Готово', 1, 1);
+    return instance;
   });
-  const instance = await installModpackArchive(dest, () => {});
-  await writeInstance({ ...instance, source: { kind: source, projectId, versionId: target.id } });
-  return instance;
+}
+
+/**
+ * Сборка для экспорта с версией загрузчика. Сборки из ИИ-подбора и импорта до первого
+ * запуска хранят только вид загрузчика — без версии архив открывался бы как ванильный.
+ * Берём ту же версию, что выбрал бы запуск: последнюю для этой версии игры.
+ */
+async function instanceForExport(instanceId: string): Promise<Instance> {
+  const instance = readInstance(instanceId);
+  if (!instance) throw new Error('Сборка не найдена');
+  if (instance.loader.kind === 'vanilla' || instance.loader.version) return instance;
+  const { listLoaderVersions } = await import('./loaders');
+  const version = await listLoaderVersions(instance.loader.kind, instance.gameVersion)
+    .then((l) => l.versions[0])
+    .catch(() => undefined);
+  if (!version) {
+    throw new Error('Не удалось узнать версию загрузчика для экспорта: проверьте интернет или запустите сборку один раз.');
+  }
+  return { ...instance, loader: { ...instance.loader, version } };
+}
+
+async function sha1Of(file: string): Promise<string> {
+  return crypto.createHash('sha1').update(await fsp.readFile(file)).digest('hex');
+}
+async function sha512Of(file: string): Promise<string> {
+  return crypto.createHash('sha512').update(await fsp.readFile(file)).digest('hex');
 }
 
 /**
@@ -255,31 +371,38 @@ export async function installModpackFromProject(
  * кладутся в overrides, чтобы архив оставался рабочим без внешних ссылок.
  */
 export async function exportMrpack(instanceId: string, targetFile: string): Promise<string> {
-  const instance = readInstance(instanceId);
-  if (!instance) throw new Error('Сборка не найдена');
+  const instance = await instanceForExport(instanceId);
   const zip = new AdmZip();
   const mods = scanMods(instanceId);
   const files: MrpackIndex['files'] = [];
   const overrides: string[] = [];
 
+  // Какие файлы есть на Modrinth — одним запросом по хэшам (раньше по запросу на каждый мод:
+  // 48 модов — 10 с). Ссылкой записывается и мод, поставленный вручную, если он есть в каталоге.
+  const entries: { rel: string; abs: string; sha1: string; enabled: boolean }[] = [];
   for (const mod of mods) {
     const rel = `${mod.kind === 'mod' ? 'mods' : mod.kind === 'resourcepack' ? 'resourcepacks' : 'shaderpacks'}/${mod.fileName}`;
     const abs = path.join(instanceDir(instanceId), rel);
-    if (!fs.existsSync(abs)) continue;
-    if (mod.source === 'modrinth' && mod.sha1) {
-      const { getModrinthVersionByHash } = await import('./modrinth');
-      const v = await getModrinthVersionByHash(mod.sha1).catch(() => null);
-      if (v?.files[0]) {
-        files.push({
-          path: rel,
-          hashes: { sha1: mod.sha1 },
-          downloads: [v.files[0].url],
-          fileSize: v.files[0].size
-        });
-        continue;
-      }
+    if (fs.existsSync(abs)) {
+      entries.push({ rel, abs, sha1: mod.sha1 ?? (await sha1Of(abs)), enabled: true });
+    } else if (fs.existsSync(`${abs}.disabled`)) {
+      // Выключенный мод кладём в архив выключенным — раньше он пропадал из экспорта
+      entries.push({ rel: `${rel}.disabled`, abs: `${abs}.disabled`, sha1: '', enabled: false });
     }
-    overrides.push(rel);
+  }
+  const { getModrinthVersionsByHashes } = await import('./modrinth');
+  const known = await getModrinthVersionsByHashes(entries.filter((e) => e.enabled).map((e) => e.sha1)).catch(
+    () => ({}) as Record<string, CatalogVersion>
+  );
+  for (const e of entries) {
+    // Ссылка — именно на этот файл версии (у версии бывает несколько файлов)
+    const file = e.enabled ? known[e.sha1]?.files.find((f) => f.hashes?.sha1 === e.sha1) : undefined;
+    if (file) {
+      // В формате .mrpack обязательны и sha1, и sha512 — без sha512 строгие лаунчеры архив не откроют
+      files.push({ path: e.rel, hashes: { sha1: e.sha1, sha512: await sha512Of(e.abs) }, downloads: [file.url], fileSize: file.size });
+    } else {
+      overrides.push(e.rel);
+    }
   }
 
   const deps: Record<string, string> = { minecraft: instance.gameVersion };
@@ -333,14 +456,15 @@ function curseForgeLoaderId(instance: { loader: { kind: string; version?: string
  * остальные кладутся в overrides, чтобы архив оставался рабочим.
  */
 export async function exportCurseForgeZip(instanceId: string, targetFile: string): Promise<string> {
-  const instance = readInstance(instanceId);
-  if (!instance) throw new Error('Сборка не найдена');
+  const instance = await instanceForExport(instanceId);
   const zip = new AdmZip();
   const files: { projectID: number; fileID: number; required: boolean }[] = [];
   for (const mod of scanMods(instanceId)) {
     const rel = `${mod.kind === 'mod' ? 'mods' : mod.kind === 'resourcepack' ? 'resourcepacks' : 'shaderpacks'}/${mod.fileName}`;
-    const abs = path.join(instanceDir(instanceId), rel);
-    if (!fs.existsSync(abs)) continue;
+    // Выключенный мод лежит как «.jar.disabled» — раньше он выпадал из экспорта
+    const plain = path.join(instanceDir(instanceId), rel);
+    const abs = fs.existsSync(plain) ? plain : fs.existsSync(`${plain}.disabled`) ? `${plain}.disabled` : null;
+    if (!abs) continue;
     const projectID = Number(mod.projectId);
     const fileID = Number(mod.versionId);
     if (mod.source === 'curseforge' && Number.isFinite(projectID) && Number.isFinite(fileID)) {

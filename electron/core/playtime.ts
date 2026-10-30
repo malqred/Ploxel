@@ -14,6 +14,19 @@ export interface WeekSummary {
   /** сегодняшняя дата YYYY-MM-DD — по ней подсвечивается столбик */
   today: string;
   instances: { id: string; name: string; minutes: number; percent: number }[];
+  /** по каждому дню недели: в какие сборки и сколько играли */
+  byDay: Record<string, { id: string; name: string; minutes: number; percent: number }[]>;
+}
+
+function shares(byInstance: Map<string, number>, total: number, names: Map<string, string>) {
+  return [...byInstance.entries()]
+    .map(([id, minutes]) => ({
+      id,
+      name: names.get(id) ?? 'Удалённая сборка',
+      minutes,
+      percent: total ? Math.round((minutes / total) * 100) : 0
+    }))
+    .sort((a, b) => b.minutes - a.minutes);
 }
 
 export function localDay(d: Date): string {
@@ -54,19 +67,17 @@ export function summarizeWeek(entries: DayEntry[], now: Date, names: Map<string,
   }
   const inWeek = new Set(days.map((d) => d.day));
   const byInstance = new Map<string, number>();
+  const perDay = new Map<string, Map<string, number>>();
   for (const e of entries) {
     if (!inWeek.has(e.day)) continue;
     days.find((d) => d.day === e.day)!.minutes += e.minutes;
     byInstance.set(e.instanceId, (byInstance.get(e.instanceId) ?? 0) + e.minutes);
+    const day = perDay.get(e.day) ?? new Map<string, number>();
+    day.set(e.instanceId, (day.get(e.instanceId) ?? 0) + e.minutes);
+    perDay.set(e.day, day);
   }
   const totalMinutes = days.reduce((s, d) => s + d.minutes, 0);
-  const instances = [...byInstance.entries()]
-    .map(([id, minutes]) => ({
-      id,
-      name: names.get(id) ?? 'Удалённая сборка',
-      minutes,
-      percent: totalMinutes ? Math.round((minutes / totalMinutes) * 100) : 0
-    }))
-    .sort((a, b) => b.minutes - a.minutes);
-  return { totalMinutes, days, today: localDay(now), instances };
+  const byDay: WeekSummary['byDay'] = {};
+  for (const d of days) byDay[d.day] = shares(perDay.get(d.day) ?? new Map(), d.minutes, names);
+  return { totalMinutes, days, today: localDay(now), instances: shares(byInstance, totalMinutes, names), byDay };
 }

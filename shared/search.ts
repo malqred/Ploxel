@@ -27,6 +27,67 @@ export function switchLayout(text: string): string {
   return [...lower].map((c) => map.get(c) ?? c).join('');
 }
 
+/* ---------------------------- Транслит ---------------------------- */
+
+// Сначала длинные сочетания: «shch» раньше «sh» и «ch»
+const LAT_TO_CYR: [string, string][] = [
+  ['shch', 'щ'], ['sch', 'щ'], ['yo', 'ё'], ['jo', 'ё'], ['zh', 'ж'], ['kh', 'х'], ['ch', 'ч'], ['sh', 'ш'], ['ts', 'ц'],
+  ['yu', 'ю'], ['ju', 'ю'], ['ya', 'я'], ['ja', 'я'], ['ye', 'е'], ['a', 'а'], ['b', 'б'], ['v', 'в'], ['w', 'в'], ['g', 'г'], ['d', 'д'], ['e', 'е'],
+  ['z', 'з'], ['i', 'и'], ['j', 'й'], ['k', 'к'], ['l', 'л'], ['m', 'м'], ['n', 'н'], ['o', 'о'], ['p', 'п'],
+  ['r', 'р'], ['s', 'с'], ['t', 'т'], ['u', 'у'], ['f', 'ф'], ['h', 'х'], ['c', 'к'], ['y', 'ы'], ['x', 'кс'],
+  ['q', 'к'], ["'", 'ь']
+];
+const CYR_TO_LAT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm',
+  н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch',
+  ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya'
+};
+
+/** Русские слова, набранные латиницей: «mody» → «моды», «pamyat» → «памят». */
+export function translitToCyrillic(text: string): string {
+  const lower = text.toLowerCase();
+  let out = '';
+  for (let i = 0; i < lower.length; ) {
+    const hit = /[a-z']/.test(lower[i]) ? LAT_TO_CYR.find(([lat]) => lower.startsWith(lat, i)) : undefined;
+    if (hit) {
+      out += hit[1];
+      i += hit[0].length;
+    } else {
+      out += lower[i];
+      i++;
+    }
+  }
+  // «y» после гласной — это «й»: «moy» → «мой», «noviy» → «новий», «novyy» → «новый»
+  return out.replace(/([аеиоуэюяы])ы/g, '$1й');
+}
+
+/** Латиница для кириллицы: «содиум» → «sodium», «фабрик» → «fabrik». */
+export function translitToLatin(text: string): string {
+  return [...text.toLowerCase()].map((c) => CYR_TO_LAT[c] ?? c).join('');
+}
+
+/** Похоже ли латинское слово на русское, написанное транслитом. */
+export function looksLikeTranslit(word: string): boolean {
+  const w = word.toLowerCase();
+  if (!/^[a-z']+$/.test(w) || w.length < 3) return false;
+  return /(zh|kh|shch|sch|ya|yu|yo|iy|yy|ij|ts|ch[aeiouy])|(iya|aya|oye|ogo|ami|ykh|ov|ev|y|i)$/.test(w) || /'/.test(w);
+}
+
+/**
+ * Варианты запроса для нечёткого поиска: как есть, в другой раскладке и
+ * транслитом (в обе стороны). Первый — исходный.
+ */
+export function queryVariants(text: string): string[] {
+  const out = [text];
+  const add = (v: string) => {
+    if (v.trim() && !out.includes(v)) out.push(v);
+  };
+  add(switchLayout(text));
+  if (/[a-z]/i.test(text) && !/[а-яё]/i.test(text)) add(translitToCyrillic(text));
+  if (/[а-яё]/i.test(text) && !/[a-z]/i.test(text)) add(translitToLatin(text));
+  return out;
+}
+
 /** Похоже ли слово на латиницу/кириллицу, набранную в чужой раскладке. */
 export function isLikelyWrongLayout(text: string): boolean {
   const t = text.toLowerCase().replace(/[^a-zа-яё]/g, '');
@@ -316,12 +377,18 @@ export function catalogQueries(raw: string): string[] {
   const mapped: string[] = [];
   let unknown = 0;
   for (const w of words) {
-    const term = PHRASE_TERMS[w] ?? (/[а-я]/.test(w) ? catalogTerm(w) : null);
+    // Русское слово латиницей: «oruzhie» → «оружие» → weapons
+    const translitTerm = !/[а-я]/.test(w) && looksLikeTranslit(w) ? catalogTerm(translitToCyrillic(w)) : null;
+    const term = PHRASE_TERMS[w] ?? translitTerm ?? (/[а-я]/.test(w) ? catalogTerm(w) : null);
     if (term) mapped.push(term);
     else if (/[а-я]/.test(w)) {
       // Возможно, набрано в русской раскладке: «ыщвшгь» → «sodium»
       const switched = switchLayout(w);
-      const popular = POPULAR.includes(switched) ? switched : fixPopularTypo(switched);
+      // Или название мода кириллицей: «литематика» → «litematica»
+      const latin = translitToLatin(w);
+      const popular = POPULAR.includes(switched)
+        ? switched
+        : (fixPopularTypo(switched) ?? (POPULAR.includes(latin) ? latin : fixPopularTypo(latin)));
       if (popular) mapped.push(popular);
       else unknown++;
     } else mapped.push(fixPopularTypo(w) ?? w);

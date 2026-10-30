@@ -26,6 +26,8 @@ export interface LaunchInput {
   launcherVersion: string;
   isOffline: boolean;
   logConfigPath?: string;
+  /** готовые аргументы Java (каждый — один аргумент, без разбиения по пробелам), например -javaagent для Ely.by */
+  extraJvmArgList?: string[];
 }
 
 export interface LaunchPlan {
@@ -91,6 +93,7 @@ export function buildLaunchPlan(input: LaunchInput): LaunchPlan {
     jvm.push('-Dlog4j2.formatMsgNoLookups=true');
   }
 
+  if (input.extraJvmArgList?.length) jvm.push(...input.extraJvmArgList);
   if (input.extraJvmArgs?.trim()) {
     jvm.push(...splitArgs(input.extraJvmArgs.trim()));
   }

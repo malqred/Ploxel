@@ -4,7 +4,7 @@ import { Modal } from '../../ui/Overlay';
 import { Button } from '../../ui/Button';
 import { SearchField } from '../../ui/TextField';
 import { EmptyState } from '../../ui/Common';
-import { GUIDES, searchGuides, type Guide } from '../../content/guides';
+import { GUIDES, readMinutes, searchGuides, type Guide } from '../../content/guides';
 import { GuideArticle } from './GuideView';
 import { GuideIcon } from './LauncherSearch';
 
@@ -43,7 +43,7 @@ export function GuidesModal({ open, onClose }: { open: boolean; onClose: () => v
                 Все гайды
               </Button>
               <span className="tiny muted row" style={{ gap: 4 }}>
-                <Clock size={12} /> {`${guide.minutes} мин чтения`}
+                <Clock size={12} /> {`${readMinutes(guide)} мин чтения`}
               </span>
             </div>
             <GuideArticle guide={guide} onOpen={openGuide} plain />
@@ -62,7 +62,7 @@ export function GuidesModal({ open, onClose }: { open: boolean; onClose: () => v
                     </span>
                     <span className="guide-card__title">{g.title}</span>
                     <span className="guide-card__summary">{g.summary}</span>
-                    <span className="tiny muted">{`${g.minutes} мин`}</span>
+                    <span className="tiny muted">{`${readMinutes(g)} мин`}</span>
                   </button>
                 ))}
               </div>

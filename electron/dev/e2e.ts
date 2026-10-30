@@ -54,6 +54,12 @@ export async function runE2E(command: string, arg: (name: string) => string | un
     return;
   }
 
+  if (command === 'curseforge') {
+    const { runCurseForgeE2E } = await import('./e2e-curseforge');
+    await runCurseForgeE2E(arg);
+    return;
+  }
+
   if (command === 'java') {
     const java = await downloadJava(arg('component') || 'java-runtime-gamma', (d, t) => printProgress('java', d, t));
     console.log('[e2e] java скачана:', java.path, 'major', java.major);

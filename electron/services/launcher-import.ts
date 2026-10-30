@@ -7,11 +7,12 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { compareVersions } from '../core/version-compare';
-import { instanceDir } from './paths';
+import { shell } from 'electron';
+import { getRoot, instanceDir } from './paths';
 import { createInstance, listInstances, setInstanceCover, updateInstance } from './instances';
 import { persistMods, scanMods } from './mods';
 import { sha1File } from './downloader';
-import { installModpackArchive } from './modpack';
+import { installModpackFileWithTask } from './modpack';
 import { getModrinthVersionByHash } from './modrinth';
 import type {
   CatalogVersion,
@@ -1160,13 +1161,52 @@ export async function importDetected(info: ImportedInstanceInfo, options: Import
   };
   await fsp.writeFile(path.join(dest, IMPORT_MARKER), JSON.stringify(marker, null, 2), 'utf8');
 
+  const deletable = sourceDeletable(info, src);
+  if (deletable) importedSources.add(src.toLowerCase());
   return {
     instanceId: instance.id,
     name: instance.name,
     importedMods: countJars(path.join(dest, 'mods')),
     importedWorlds: countDirs(path.join(dest, 'saves')),
-    warnings
+    warnings,
+    sourcePath: src,
+    launcherName: info.launcherName,
+    sourceSize: info.sizeBytes,
+    sourceDeletable: deletable
   };
+}
+
+/* ------------------------------ Удаление в старом лаунчере ------------------------------ */
+
+/** Папки, перенесённые в этом запуске, — удалить можно только их. */
+const importedSources = new Set<string>();
+
+/**
+ * Можно ли убрать сборку в старом лаунчере: только отдельная папка сборки
+ * (Prism, CurseForge, ATLauncher…). Общую .minecraft официального лаунчера и
+ * TLauncher не трогаем, Modrinth App хранит сборки в своей базе — папку без
+ * неё удалять нельзя.
+ */
+function sourceDeletable(info: ImportedInstanceInfo, src: string): boolean {
+  if (info.kind !== 'profile' || info.launcherId === 'modrinth') return false;
+  const root = path.resolve(getRoot()).toLowerCase();
+  const p = src.toLowerCase();
+  if (p === root || p.startsWith(root + path.sep) || root.startsWith(p + path.sep)) return false;
+  // Не корень диска и не папка пользователя целиком
+  return src.split(/[\\/]/).filter(Boolean).length >= 4;
+}
+
+/** Убрать перенесённую сборку из старого лаунчера — папка уходит в корзину Windows. */
+export async function deleteImportedSource(sourcePath: string): Promise<void> {
+  const src = path.resolve(sourcePath);
+  if (!importedSources.has(src.toLowerCase())) throw new Error('Эту папку лаунчер не переносил — удалять её он не будет.');
+  if (!fs.existsSync(src)) {
+    importedSources.delete(src.toLowerCase());
+    return;
+  }
+  if (!fs.statSync(src).isDirectory() || fs.lstatSync(src).isSymbolicLink()) throw new Error('Это не папка сборки');
+  await shell.trashItem(src);
+  importedSources.delete(src.toLowerCase());
 }
 
 /* ------------------------------ Архивы-модпаки ------------------------------ */
@@ -1205,7 +1245,7 @@ export async function importArchive(file: string, options?: Partial<ImportOption
   if (!fs.existsSync(file)) throw new Error('Архив не найден');
   detectArchiveFormat(file);
   assertNoZipSlip(file);
-  return installModpackArchive(file, () => {});
+  return installModpackFileWithTask(file);
 }
 
 /* ------------------------------ Опознание модов по хэшу ------------------------------ */

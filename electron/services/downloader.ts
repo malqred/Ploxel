@@ -25,6 +25,15 @@ export interface DownloadItem {
   size?: number;
   priority?: 'high' | 'normal' | 'low';
   group?: string;
+  /** потоки Range для этого файла (по умолчанию — из настроек загрузок) */
+  threads?: number;
+  /** название задачи в интерфейсе (по умолчанию — имя файла) */
+  title?: string;
+}
+
+/** Сколько потоков Range брать для файла. */
+function rangeThreadsFor(item: DownloadItem): number {
+  return Math.max(0, Math.min(16, Math.floor(item.threads ?? config.rangeThreads)));
 }
 
 export interface DownloadConfig {
@@ -631,7 +640,7 @@ async function downloadMulti(
   gate: PauseGate,
   report: ByteReporter
 ): Promise<void> {
-  const chunks = planChunks(total, config.rangeThreads);
+  const chunks = planChunks(total, rangeThreadsFor(item));
   const attemptCtrl = new AbortController();
   const attemptSignal = signal ? AbortSignal.any([signal, attemptCtrl.signal]) : attemptCtrl.signal;
   let firstError: unknown = null;
@@ -694,6 +703,22 @@ function makeGate(lookup: TaskLookup, signal: AbortSignal): PauseGate {
 }
 
 /**
+ * Запасной адрес файла у того же официального источника. CDN CurseForge
+ * edge.forgecdn.net временами отдаёт 404 на существующие файлы, а
+ * mediafilez.forgecdn.net с тем же путём — отдаёт (и наоборот).
+ */
+export function curseForgeAltUrl(url: string): string | null {
+  if (url.startsWith('https://edge.forgecdn.net/')) return url.replace('https://edge.forgecdn.net/', 'https://mediafilez.forgecdn.net/');
+  if (url.startsWith('https://mediafilez.forgecdn.net/')) return url.replace('https://mediafilez.forgecdn.net/', 'https://edge.forgecdn.net/');
+  return null;
+}
+
+function withMirror(item: DownloadItem): DownloadItem {
+  const alt = curseForgeAltUrl(item.url);
+  return alt ? { ...item, url: alt } : item;
+}
+
+/**
  * Полная загрузка одного файла: пропуск по кэшу, retry с экспоненциальной паузой,
  * проверка размера и хэшей до атомарного rename.
  */
@@ -711,11 +736,11 @@ async function doDownload(
   // Решаем стратегию: Range-потоки только для крупных файлов и если сервер умеет.
   let threads = 0;
   let total: number | undefined = item.size;
-  if (config.rangeThreads > 0 && (item.size ?? 0) >= LARGE_FILE_MIN) {
+  if (rangeThreadsFor(item) > 0 && (item.size ?? 0) >= LARGE_FILE_MIN) {
     try {
       const probe = await probeRanges(item.url, signal);
       if (probe.ok) {
-        threads = config.rangeThreads;
+        threads = rangeThreadsFor(item);
         total = probe.total ?? item.size;
       }
     } catch (e) {
@@ -733,11 +758,13 @@ async function doDownload(
     if (signal.aborted) throw new CancelledError();
     const t = lookup();
     if (t) t.bytesDone = 0; // при повторе считаем прогресс заново
+    // Повтор идёт и с запасного адреса того же источника (CurseForge: edge ↔ mediafilez)
+    const src = attempt % 2 === 1 ? withMirror(item) : item;
     try {
-      if (threads > 0) await downloadMulti(item, total as number, signal, gate, report);
-      else await downloadSingle(item, signal, gate, report);
+      if (threads > 0) await downloadMulti(src, total as number, signal, gate, report);
+      else await downloadSingle(src, signal, gate, report);
       await fsp.rename(partPath(item), item.dest); // атомарное перенесение
-      if (threads > 0) cleanupParts(item, config.rangeThreads);
+      if (threads > 0) cleanupParts(item, threads);
       return;
     } catch (e) {
       if (signal.aborted || cancelled()) throw new CancelledError();
@@ -797,6 +824,12 @@ let emitTimer: ReturnType<typeof setTimeout> | null = null;
 /** Пакет загрузки (downloadMany) для каждой задачи-файла: в интерфейсе пакет — одна строка. */
 const taskBatch = new Map<string, number>();
 const batchSize = new Map<number, number>();
+/**
+ * Байты пакета целиком: размер всех файлов и уже скачанное. Готовые файлы
+ * через несколько секунд пропадают из списка задач — без этого процент
+ * пакета считался бы только по оставшимся файлам и «прыгал».
+ */
+const batchBytes = new Map<number, { total: number; known: boolean; finished: number }>();
 
 function enqueue(
   item: DownloadItem,
@@ -808,7 +841,7 @@ function enqueue(
   const priority = item.priority ?? 'normal';
   const task: DownloadTask = {
     id,
-    title: path.basename(item.dest),
+    title: item.title ?? path.basename(item.dest),
     detail: item.url,
     total: item.size ?? 0,
     done: 0,
@@ -901,6 +934,8 @@ function settle(q: QueueEntry, error: unknown) {
       task.status = 'done';
       task.done = task.bytesTotal ?? task.total ?? task.done;
       task.bytesDone = task.bytesTotal ?? task.bytesDone;
+      const bb = batchBytes.get(q.batchId);
+      if (bb) bb.finished += task.bytesTotal || q.item.size || task.bytesDone || 0;
       task.canCancel = false;
       task.speedBps = 0;
     }
@@ -911,7 +946,7 @@ function settle(q: QueueEntry, error: unknown) {
   schedule();
   // Отменённую загрузку не докатываем: убираем .part, когда стримы точно закрылись.
   if (tasks.get(q.taskId)?.status === 'cancelled') {
-    setTimeout(() => cleanupParts(q.item, config.rangeThreads), 150);
+    setTimeout(() => cleanupParts(q.item, rangeThreadsFor(q.item)), 150);
   }
   // Держим завершённую задачу в списке недолго — как раньше.
   setTimeout(() => {
@@ -946,6 +981,11 @@ export async function downloadMany(
   const batchLimit = opts.concurrency ?? 6;
   const batchId = batchCounter++;
   batchSize.set(batchId, items.length);
+  batchBytes.set(batchId, {
+    total: items.reduce((n, i) => n + (i.size ?? 0), 0),
+    known: items.every((i) => (i.size ?? 0) > 0),
+    finished: 0
+  });
   let done = 0;
   const deferreds = items.map((item) => enqueue(item, batchLimit, opts.signal, batchId));
   await Promise.all(
@@ -964,7 +1004,10 @@ export async function downloadMany(
     )
   ).finally(() => {
     // Строка пакета исчезнет вместе с последней задачей-файлом
-    setTimeout(() => batchSize.delete(batchId), 7000);
+    setTimeout(() => {
+      batchSize.delete(batchId);
+      batchBytes.delete(batchId);
+    }, 7000);
   });
 }
 
@@ -1024,6 +1067,11 @@ function batchTask(b: number, list: DownloadTask[]): DownloadTask {
           ? 'error'
           : 'done';
   const sum = (k: 'bytesDone' | 'bytesTotal' | 'speedBps') => list.reduce((n, t) => n + (t[k] ?? 0), 0);
+  const bb = batchBytes.get(b);
+  const activeBytes = list.filter((t) => ACTIVE.includes(t.status)).reduce((n, t) => n + (t.bytesDone ?? 0), 0);
+  // Размер всех файлов известен — процент по байтам всего пакета, иначе — по числу файлов
+  const bytesTotal = bb?.known ? bb.total : 0;
+  const bytesDone = bb?.known ? Math.min(bb.total, bb.finished + activeBytes) : 0;
   return {
     id: `batch:${b}`,
     title: `Файлов: ${size}`,
@@ -1032,8 +1080,8 @@ function batchTask(b: number, list: DownloadTask[]): DownloadTask {
     done: Math.max(0, finished),
     status,
     error: list.find((t) => t.error)?.error,
-    bytesDone: sum('bytesDone'),
-    bytesTotal: sum('bytesTotal'),
+    bytesDone: bb ? bytesDone : sum('bytesDone'),
+    bytesTotal: bb ? bytesTotal : sum('bytesTotal'),
     speedBps: sum('speedBps'),
     canCancel: status !== 'done'
   };
@@ -1161,7 +1209,7 @@ export function cancelTask(id: string): boolean {
   if (qIdx !== -1) {
     const [q] = queue.splice(qIdx, 1);
     q.d.reject(new CancelledError());
-    cleanupParts(q.item, config.rangeThreads);
+    cleanupParts(q.item, rangeThreadsFor(q.item));
   }
   if (run) run.ac.abort(new CancelledError());
   emit(true);

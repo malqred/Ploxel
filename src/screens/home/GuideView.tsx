@@ -1,6 +1,6 @@
 import { ArrowLeft, Clock } from 'lucide-react';
 import { Button } from '../../ui/Button';
-import { GUIDES, type Guide } from '../../content/guides';
+import { GUIDES, readMinutes, type Guide } from '../../content/guides';
 
 /** Текст гайда: используется и на отдельной странице, и в окне «Все гайды». */
 export function GuideArticle({ guide, onOpen, plain }: { guide: Guide; onOpen: (g: Guide) => void; plain?: boolean }) {
@@ -47,7 +47,7 @@ export function GuideView({ guide, onBack, onOpen }: { guide: Guide; onBack: () 
           Назад к поиску
         </Button>
         <span className="tiny muted row" style={{ gap: 4 }}>
-          <Clock size={12} /> {`${guide.minutes} мин чтения`}
+          <Clock size={12} /> {`${readMinutes(guide)} мин чтения`}
         </span>
       </div>
       <GuideArticle guide={guide} onOpen={onOpen} />

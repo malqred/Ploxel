@@ -21,6 +21,12 @@ const CLASS_ID: Record<CatalogSearchQuery['projectType'], number> = {
 };
 
 const LOADER_ID: Record<string, number> = { forge: 1, fabric: 4, quilt: 5, neoforge: 6 };
+const LOADER_BY_ID: Record<number, string> = { 1: 'forge', 4: 'fabric', 5: 'quilt', 6: 'neoforge' };
+const KNOWN_LOADERS = new Set(['forge', 'fabric', 'quilt', 'neoforge']);
+const TYPE_BY_CLASS: Record<number, CatalogProject['projectType']> = { 6: 'mod', 4471: 'modpack', 12: 'resourcepack', 6552: 'shader' };
+
+/** «1.20.1» — версия игры; «Fabric», «Client», «Java 17» — нет. */
+const isGameVersion = (v: string) => /^\d+\.\d+/.test(v);
 
 // Ключ CurseForge берётся только из config.json / PLOXEL_CURSEFORGE_KEY.
 // Ключ, сохранённый раньше через настройки, удаляется при запуске.
@@ -43,17 +49,70 @@ export function forgetStoredCurseForgeKey(): void {
   }
 }
 
+/** fetch через отдельное соединение (новый Agent undici); без undici — обычный fetch. */
+async function freshFetch(url: string, init: RequestInit): Promise<Response> {
+  try {
+    const undici = (await import('undici')) as unknown as {
+      Agent: new (o?: object) => { close(): Promise<void> };
+      fetch: (u: string, i: object) => Promise<Response>;
+    };
+    const dispatcher = new undici.Agent({ keepAliveTimeout: 1, connections: 1 });
+    try {
+      const res = await undici.fetch(url, { ...init, dispatcher });
+      // Тело читается позже — соединение закроется после этого само; Agent закрываем с запасом
+      setTimeout(() => void dispatcher.close().catch(() => undefined), 30000);
+      return res;
+    } catch (e) {
+      void dispatcher.close().catch(() => undefined);
+      throw e;
+    }
+  } catch (e) {
+    if (e instanceof Error && /Cannot find module|ERR_MODULE_NOT_FOUND/.test(e.message)) return fetch(url, init);
+    throw e;
+  }
+}
+
+/**
+ * Запрос к API с повтором: на нестабильной сети соединение иногда виснет,
+ * а следующая попытка проходит за доли секунды. 403 (неверный ключ) и 404 не повторяем.
+ */
+async function request(path: string, init: { method?: string; body?: string; altPath?: string } = {}): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      // Повтор — с запасной формой запроса, если она есть: зависший у сервера запрос не ждём второй раз
+      const url = attempt % 2 === 1 && init.altPath ? init.altPath : path;
+      const opts = {
+        method: init.method ?? 'GET',
+        body: init.body,
+        headers: { 'x-api-key': curseforgeKey(), Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
+        signal: AbortSignal.timeout(attempt === 0 ? 8000 : 15000)
+      };
+      // Повторы — через новое соединение: общий пул keep-alive мог держать зависший сокет,
+      // и все попытки ушли бы в него
+      const res = attempt === 0 ? await fetch(`${BASE}${url}`, opts) : await freshFetch(`${BASE}${url}`, opts);
+      if (res.ok) return res;
+      if (res.status === 403) throw new Error('CurseForge отклонил ключ API (HTTP 403). Проверьте curseforgeApiKey в config.json.');
+      if (res.status !== 429 && res.status < 500) throw new Error(`CurseForge: HTTP ${res.status}`);
+      lastError = new Error(`CurseForge: HTTP ${res.status}`);
+    } catch (e) {
+      if (e instanceof CurseForgeUnavailable || (e instanceof Error && e.message.startsWith('CurseForge'))) throw e;
+      lastError = e;
+    }
+    await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+  throw lastError instanceof Error ? lastError : new Error('CurseForge недоступен');
+}
+
 async function api<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'x-api-key': curseforgeKey(), Accept: 'application/json' },
-    signal: AbortSignal.timeout(20000)
-  });
-  if (!res.ok) throw new Error(`CurseForge: HTTP ${res.status}`);
-  return (await res.json()) as T;
+  return (await (await request(path)).json()) as T;
 }
 
 interface CfMod {
   id: number;
+  classId?: number;
+  screenshots?: { url: string }[];
+  latestFilesIndexes?: { gameVersion: string; modLoader?: number }[];
   name: string;
   slug: string;
   summary: string;
@@ -76,6 +135,7 @@ interface CfFile {
   hashes: { value: string; algo: number }[];
   dependencies: { modId: number; relationType: number }[];
   gameVersions: string[];
+  isServerPack?: boolean;
 }
 
 export function isCurseForgeAvailable(): boolean {
@@ -99,7 +159,16 @@ export async function searchCurseForge(q: CatalogSearchQuery): Promise<CatalogSe
     const categoryId = await curseForgeCategoryId(q.projectType, q.category).catch(() => undefined);
     if (categoryId) params.set('categoryId', String(categoryId));
   }
-  const res = await api<{ data: CfMod[]; pagination: { totalCount: number } }>(`/mods/search?${params.toString()}`);
+  // Поиск с категорией у CurseForge иногда зависает, пока результат не попал в его кэш;
+  // повтор отправляем с другой формой того же фильтра (categoryIds) — он отвечает сразу
+  const alt = new URLSearchParams(params);
+  if (alt.has('categoryId')) {
+    alt.set('categoryIds', JSON.stringify([Number(alt.get('categoryId'))]));
+    alt.delete('categoryId');
+  }
+  const res = (await (
+    await request(`/mods/search?${params.toString()}`, { altPath: `/mods/search?${alt.toString()}` })
+  ).json()) as { data: CfMod[]; pagination: { totalCount: number } };
   return {
     total: res.pagination.totalCount,
     offset: q.offset,
@@ -108,7 +177,12 @@ export async function searchCurseForge(q: CatalogSearchQuery): Promise<CatalogSe
   };
 }
 
-function normalizeMod(m: CfMod, type: CatalogProject['projectType']): CatalogProject {
+function normalizeMod(m: CfMod, fallbackType: CatalogProject['projectType']): CatalogProject {
+  const type = (m.classId && TYPE_BY_CLASS[m.classId]) || fallbackType;
+  const indexes = m.latestFilesIndexes ?? [];
+  const loaders = [...new Set(indexes.map((i) => (i.modLoader ? LOADER_BY_ID[i.modLoader] : undefined)).filter(Boolean) as string[])];
+  const gameVersions = [...new Set(indexes.map((i) => i.gameVersion).filter(isGameVersion))];
+  const section = type === 'modpack' ? 'modpacks' : type === 'resourcepack' ? 'texture-packs' : type === 'shader' ? 'shaders' : 'mc-mods';
   return {
     source: 'curseforge',
     id: String(m.id),
@@ -120,16 +194,21 @@ function normalizeMod(m: CfMod, type: CatalogProject['projectType']): CatalogPro
     author: m.authors?.[0]?.name ?? '',
     categories: m.categories?.map((c) => c.name) ?? [],
     projectType: type,
-    loaders: [],
-    gameVersions: [],
+    loaders,
+    gameVersions,
     updatedAt: m.dateModified,
-    url: m.links?.websiteUrl ?? `https://www.curseforge.com/minecraft/mc-mods/${m.slug}`
+    url: m.links?.websiteUrl ?? `https://www.curseforge.com/minecraft/${section}/${m.slug}`,
+    gallery: (m.screenshots ?? []).map((g) => g.url).slice(0, 6)
   };
 }
 
 export async function getCurseForgeProject(id: string): Promise<CatalogProject | null> {
   const res = await api<{ data: CfMod }>(`/mods/${id}`);
-  return res.data ? normalizeMod(res.data, 'mod') : null;
+  if (!res.data) return null;
+  const project = normalizeMod(res.data, 'mod');
+  // Полное описание — отдельным запросом (HTML; страница проекта переводит его в markdown)
+  const body = await api<{ data: string }>(`/mods/${id}/description`).then((r) => r.data).catch(() => undefined);
+  return body ? { ...project, body } : project;
 }
 
 export async function getCurseForgeFiles(id: string, gameVersion?: string, loader?: string): Promise<CatalogVersion[]> {
@@ -139,8 +218,12 @@ export async function getCurseForgeFiles(id: string, gameVersion?: string, loade
   if (loaderId) params.set('modLoaderType', String(loaderId));
   params.set('pageSize', '50');
   const res = await api<{ data: CfFile[] }>(`/mods/${id}/files?${params.toString()}`);
-  // Новые файлы — первыми: по первому проверяются обновления
-  return res.data.map((f) => normalizeFile(f, id)).sort((a, b) => b.datePublished.localeCompare(a.datePublished));
+  // Новые файлы — первыми: по первому проверяются обновления.
+  // Серверные сборки модпаков (isServerPack) клиенту не подходят.
+  return res.data
+    .filter((f) => !f.isServerPack)
+    .map((f) => normalizeFile(f, id))
+    .sort((a, b) => b.datePublished.localeCompare(a.datePublished));
 }
 
 /** Файл CurseForge → версия каталога. Без downloadUrl автор запретил стороннее скачивание. */
@@ -151,8 +234,8 @@ function normalizeFile(f: CfFile, projectId: string): CatalogVersion {
     projectId,
     name: f.displayName,
     versionNumber: f.displayName,
-    gameVersions: f.gameVersions.filter((v) => /^d/.test(v)),
-    loaders: f.gameVersions.filter((v) => !/^d/.test(v)).map((v) => v.toLowerCase()),
+    gameVersions: f.gameVersions.filter(isGameVersion),
+    loaders: f.gameVersions.map((v) => v.toLowerCase()).filter((v) => KNOWN_LOADERS.has(v)),
     files: f.downloadUrl
       ? [{ url: f.downloadUrl, fileName: f.fileName, size: f.fileLength, primary: true, hashes: sha1 ? { sha1 } : undefined }]
       : [],
@@ -168,14 +251,7 @@ function normalizeFile(f: CfFile, projectId: string): CatalogVersion {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'x-api-key': curseforgeKey(), 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20000)
-  });
-  if (!res.ok) throw new Error(`CurseForge: HTTP ${res.status}`);
-  return (await res.json()) as T;
+  return (await (await request(path, { method: 'POST', body: JSON.stringify(body) })).json()) as T;
 }
 
 export interface CurseForgeIdentified {
@@ -297,7 +373,7 @@ const CF_CATEGORY_SLUGS: Record<string, string[]> = {
 const categoryCache = new Map<number, Map<string, number>>();
 
 export async function curseForgeCategoryId(projectType: CatalogSearchQuery['projectType'], category: string): Promise<number | undefined> {
-  if (/^d+$/.test(category)) return Number(category);
+  if (/^\d+$/.test(category)) return Number(category);
   const classId = CLASS_ID[projectType];
   let bySlug = categoryCache.get(classId);
   if (!bySlug) {
@@ -317,12 +393,6 @@ export async function curseForgeCategoryId(projectType: CatalogSearchQuery['proj
 /** Названия проектов пачкой — для списка зависимостей. */
 export async function getCurseForgeMods(ids: string[]): Promise<CatalogProject[]> {
   if (!ids.length) return [];
-  const res = await fetch(`${BASE}/mods`, {
-    method: 'POST',
-    headers: { 'x-api-key': curseforgeKey(), 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ modIds: ids.map(Number), filterPcOnly: true })
-  });
-  if (!res.ok) throw new Error(`CurseForge: HTTP ${res.status}`);
-  const json = (await res.json()) as { data: CfMod[] };
+  const json = await post<{ data: CfMod[] }>('/mods', { modIds: ids.map(Number), filterPcOnly: true });
   return json.data.map((m) => normalizeMod(m, 'mod'));
 }

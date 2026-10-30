@@ -8,6 +8,10 @@ import { versionsRoot, readLocalVersion, resolveVersion } from './versions';
 import { ensureJava } from './java';
 import type { LoaderKind, LoaderSpec } from '../../shared/types';
 
+/** fetch с тайм-аутом: зависшее соединение не должно держать вход, загрузку или проверку бесконечно. */
+const fetchT = (url: string, init: RequestInit = {}) => fetch(url, { signal: AbortSignal.timeout(20000), ...init });
+
+
 const FABRIC = 'https://meta.fabricmc.net/v2';
 const QUILT = 'https://meta.quiltmc.org/v3';
 const FORGE_METADATA = 'https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml';
@@ -21,6 +25,31 @@ export interface LoaderVersions {
 }
 
 const cache = new Map<string, { at: number; data: LoaderVersions }>();
+
+const LOADER_HOST: Record<string, string> = {
+  fabric: 'meta.fabricmc.net',
+  quilt: 'meta.quiltmc.org',
+  forge: 'maven.minecraftforge.net',
+  neoforge: 'maven.neoforged.net'
+};
+
+/** Понятное сообщение, когда сервер загрузчика не отвечает. */
+export function loaderServerError(kind: string, reason: string): string {
+  const name = kind === 'neoforge' ? 'NeoForge' : kind[0].toUpperCase() + kind.slice(1);
+  return `Сервер ${name} (${LOADER_HOST[kind] ?? kind}) сейчас не отвечает, поэтому загрузчик не установить. Проверьте интернет или попробуйте позже. Причина: ${reason}`;
+}
+
+/** Обращение к серверу загрузчика: сетевая ошибка превращается в понятное сообщение. */
+async function viaLoaderServer<T>(kind: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    // 404 — нет такой версии загрузчика, это не «сервер не отвечает»
+    if (/HTTP 404/.test(reason)) throw e;
+    throw new Error(loaderServerError(kind, reason));
+  }
+}
 
 /** Список доступных версий загрузчика для конкретной версии игры. */
 export async function listLoaderVersions(kind: LoaderKind, gameVersion: string): Promise<LoaderVersions> {
@@ -43,7 +72,7 @@ export async function listLoaderVersions(kind: LoaderKind, gameVersion: string):
       );
       result = { kind, versions: list.map((v) => v.loader.version) };
     } else if (kind === 'forge') {
-      const xml = await (await fetch(FORGE_METADATA)).text();
+      const xml = await (await fetchT(FORGE_METADATA)).text();
       const all = [...xml.matchAll(/<version>([^<]+)<\/version>/g)].map((m) => m[1]);
       const prefix = `${gameVersion}-`;
       result = {
@@ -54,7 +83,7 @@ export async function listLoaderVersions(kind: LoaderKind, gameVersion: string):
           .reverse()
       };
     } else {
-      const xml = await (await fetch(NEOFORGE_METADATA)).text();
+      const xml = await (await fetchT(NEOFORGE_METADATA)).text();
       const all = [...xml.matchAll(/<version>([^<]+)<\/version>/g)].map((m) => m[1]);
       // NeoForge нумеруется по версии игры без ведущей «1»: 1.21.8 → 21.8.x
       const base = gameVersion.split('.').slice(1).join('.');
@@ -64,9 +93,10 @@ export async function listLoaderVersions(kind: LoaderKind, gameVersion: string):
       };
     }
   } catch (e) {
-    result = { kind, versions: [], error: e instanceof Error ? e.message : 'Не удалось получить список' };
+    result = { kind, versions: [], error: loaderServerError(kind, e instanceof Error ? e.message : 'не удалось получить список') };
   }
-  cache.set(key, { at: Date.now(), data: result });
+  // Ошибку сети не кэшируем: иначе после восстановления связи загрузчик полчаса «не находился»
+  if (!result.error) cache.set(key, { at: Date.now(), data: result });
   return result;
 }
 
@@ -87,7 +117,7 @@ export async function installLoader(
   if (kind === 'fabric' || kind === 'quilt') {
     const base = kind === 'fabric' ? FABRIC : QUILT;
     const url = `${base}/versions/loader/${encodeURIComponent(gameVersion)}/${encodeURIComponent(loaderVersion)}/profile/json`;
-    const json = await fetchJson<{ id: string }>(url);
+    const json = await viaLoaderServer(kind, () => fetchJson<{ id: string }>(url));
     const dir = path.join(versionsRoot(), json.id);
     await fsp.mkdir(dir, { recursive: true });
     await fsp.writeFile(path.join(dir, `${json.id}.json`), JSON.stringify(json, null, 2), 'utf8');
@@ -109,7 +139,7 @@ export async function installLoader(
     : `${FORGE_MAVEN}/${gameVersion}-${loaderVersion}/forge-${gameVersion}-${loaderVersion}-installer.jar`;
   const installer = data('installers', `${kind}-${loaderVersion}.jar`);
   onLog?.(`Скачивание установщика ${kind}…`);
-  await downloadMany([{ url: installerUrl, dest: installer }], { onProgress: () => {} });
+  await viaLoaderServer(kind, () => downloadMany([{ url: installerUrl, dest: installer }], { onProgress: () => {} }));
 
   // Java — та, что нужна самой версии игры (Java 25 ломает установщик Forge 1.20.1,
   // Java 17 — Forge 1.12.2); если подходящей нет, скачиваем официальную
@@ -199,6 +229,8 @@ export async function ensureLoader(
   if (!version) {
     const list = await listLoaderVersions(loader.kind, gameVersion);
     version = list.versions[0];
+    // Пустой список из-за сети — это не «версий нет»: говорим, что сервер не ответил
+    if (!version && list.error) throw new Error(list.error);
     if (!version) throw new Error(`Для Minecraft ${gameVersion} не нашлось версий ${loader.kind}. Выберите другой загрузчик в настройках сборки.`);
     onLog?.(`Версия ${loader.kind} не указана — выбрана последняя: ${version}`);
   }

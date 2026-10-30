@@ -56,6 +56,8 @@ export function listAccountViews(): AccountView[] {
     sessionState:
       a.type === 'offline'
         ? 'offline'
+        : a.type === 'elyby'
+          ? (a.refresh ? 'valid' : 'expired')
         : a.expiresAt && new Date(a.expiresAt).getTime() > Date.now()
           ? 'valid'
           : 'expired'
@@ -141,6 +143,41 @@ export function upsertMicrosoftAccount(input: {
   return publicView(stored);
 }
 
+/**
+ * Аккаунт Ely.by: secret — зашифрованные токены сессии (не пароль).
+ * Совпадение по UUID — тот же аккаунт, просто новый вход.
+ */
+export function upsertElyAccount(input: { name: string; uuid: string; secret: string; expiresAt: string; skinUrl?: string }): Account {
+  const data = read();
+  const match = data.accounts.find((a) => a.type === 'elyby' && a.uuid === input.uuid);
+  const stored: StoredAccount = match ?? {
+    id: crypto.randomUUID(),
+    type: 'elyby',
+    name: input.name,
+    uuid: input.uuid,
+    createdAt: new Date().toISOString()
+  };
+  stored.name = input.name;
+  stored.expiresAt = input.expiresAt;
+  stored.skinUrl = input.skinUrl;
+  stored.refresh = encrypt(input.secret);
+  if (!stored.refresh) throw new Error('Шифрование Windows недоступно — сохранить вход нельзя.');
+  if (!match) data.accounts.push(stored);
+  data.activeId = stored.id;
+  write(data);
+  return publicView(stored);
+}
+
+/** Обновить секрет и срок сессии существующего аккаунта (после продления токена). */
+export function updateAccountSecret(id: string, secret: string, expiresAt: string): void {
+  const data = read();
+  const acc = data.accounts.find((a) => a.id === id);
+  if (!acc) return;
+  acc.refresh = encrypt(secret);
+  acc.expiresAt = expiresAt;
+  write(data);
+}
+
 /** Расшифрованный refresh-токен для продления сессии. Только внутри main. */
 export function getRefreshToken(id: string): string | null {
   const acc = read().accounts.find((a) => a.id === id);
@@ -161,8 +198,31 @@ function publicView(a: StoredAccount): Account {
     uuid: a.uuid,
     createdAt: a.createdAt,
     expiresAt: a.expiresAt,
-    skinUrl: a.skinUrl
+    skinUrl: secureSkinUrl(a.skinUrl)
   };
+}
+
+/**
+ * Mojang отдаёт адреса текстур по http://, а окно лаунчера грузит картинки
+ * только по https — из-за этого аватар аккаунта Microsoft не показывался.
+ */
+export function secureSkinUrl(url: string | undefined): string | undefined {
+  return url ? url.replace(/^http:\/\//i,'https://') : url;
+}
+
+/** Обновить скин аккаунта после смены на серверах Mojang. */
+export function setAccountSkinUrl(id: string, skinUrl: string | undefined): void {
+  const data = read();
+  const acc = data.accounts.find((a) => a.id === id);
+  if (!acc) return;
+  acc.skinUrl = skinUrl;
+  write(data);
+}
+
+/** Активный скин из ответа /minecraft/profile. */
+export function activeSkinUrl(profile: { skins?: { url: string; state?: string }[] } | null | undefined): string | undefined {
+  const skins = profile?.skins ?? [];
+  return (skins.find((s) => s.state === 'ACTIVE') ?? skins[0])?.url;
 }
 
 function encrypt(value: string): string {

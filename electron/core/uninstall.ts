@@ -72,12 +72,37 @@ export const ROOT_ENTRIES = [
   'cache',
   'downloads',
   'backups',
+  'backgrounds',
   'secrets',
   'skins',
   'accounts.json',
   'settings.json',
   'playtime.json'
 ] as const;
+
+/**
+ * Что остаётся, если пользователь удаляет свои данные, но оставляет сборки:
+ * сами сборки (с мирами внутри) и резервные копии миров.
+ */
+export const KEEP_WITH_INSTANCES = ['instances', 'backups'] as const;
+
+/** Записи корня данных к удалению: все свои или все, кроме сборок. */
+export function rootEntriesToDelete(root: string, keepInstances: boolean): string[] {
+  return ROOT_ENTRIES.filter((e) => !keepInstances || !(KEEP_WITH_INSTANCES as readonly string[]).includes(e)).map((e) =>
+    path.join(path.resolve(root), e)
+  );
+}
+
+/**
+ * Корень данных внутри %APPDATA%Ploxel (так по умолчанию): если сборки
+ * оставляем, папку корня не трогаем целиком, а стираем в ней всё, кроме них.
+ */
+export function ownInnerDataRoot(root: string, userData: string): { root: string; name: string } | null {
+  if (!root || !userData) return null;
+  const dir = path.resolve(root);
+  if (!inside(userData, dir) || !samePath(path.dirname(dir), userData)) return null;
+  return { root: dir, name: path.basename(dir) };
+}
 
 /**
  * Папка приложения в %APPDATA% (кэш Chromium, переписка с помощником,
@@ -98,14 +123,14 @@ export function ownUserDataDir(userData: string, appData: string): string | null
  * записи лаунчера (ROOT_ENTRIES), сама папка — лишь если после этого пуста.
  * null — корень лежит внутри userData (удалится вместе с ней) или опасен.
  */
-export function ownMovedDataRoot(root: string, userData: string): { root: string; entries: string[] } | null {
+export function ownMovedDataRoot(root: string, userData: string, keepInstances = false): { root: string; entries: string[] } | null {
   if (!root) return null;
   const dir = path.resolve(root);
   if (samePath(dir, userData) || inside(userData, dir)) return null;
   if (dir.toLowerCase().split(path.sep).filter(Boolean).length < 2) return null;
   if (FORBIDDEN_DIRS().some((bad) => samePath(dir, bad))) return null;
   if (/[\\/]node_modules([\\/]|$)/i.test(dir)) return null;
-  return { root: dir, entries: ROOT_ENTRIES.map((e) => path.join(dir, e)) };
+  return { root: dir, entries: rootEntriesToDelete(dir, keepInstances) };
 }
 
 /** Что ещё стереть при полном удалении (всё проверено функциями выше). */
@@ -114,6 +139,12 @@ export interface FullCleanup {
   movedRoot: { root: string; entries: string[] } | null;
   /** рабочий стол — ярлыки сборок, ведущие на этот Ploxel.exe */
   desktop: string | null;
+  /**
+   * Данные удаляем, а сборки оставляем: в userData остаются root.json и папка
+   * корня (если он внутри userData), а в корне стираются только innerRoot.entries.
+   */
+  keepInstances?: boolean;
+  innerRoot?: { root: string; name: string; entries: string[] } | null;
 }
 
 /** Имя установщика удаления, который создаёт electron-builder (NSIS). */
@@ -167,7 +198,23 @@ export function buildCleanupScript(appDir: string, uninstaller: string | null, f
     // Папку корня — только если в ней не осталось чужих файлов
     lines.push('if ((Get-ChildItem -LiteralPath $root -Force | Measure-Object).Count -eq 0) { Remove-Item -LiteralPath $root -Force }');
   }
-  if (full?.userData) {
+  if (full?.userData && full.keepInstances) {
+    // Всё из userData, кроме указателя на корень и самого корня со сборками
+    const keep = ['root.json', ...(full.innerRoot ? [full.innerRoot.name] : [])];
+    lines.push(
+      `$ud = ${psQuote(full.userData)}`,
+      `$keep = @(${keep.map(psQuote).join(', ')})`,
+      'for ($i = 0; $i -lt 5; $i++) {',
+      '  $left = Get-ChildItem -LiteralPath $ud -Force | Where-Object { $keep -notcontains $_.Name }',
+      '  if (-not $left) { break }',
+      '  $left | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }',
+      '  Start-Sleep -Seconds 1',
+      '}'
+    );
+    for (const entry of full.innerRoot?.entries ?? []) {
+      lines.push(`Remove-Item -LiteralPath ${psQuote(entry)} -Recurse -Force`);
+    }
+  } else if (full?.userData) {
     lines.push(
       `$ud = ${psQuote(full.userData)}`,
       'for ($i = 0; $i -lt 5 -and (Test-Path -LiteralPath $ud); $i++) {',

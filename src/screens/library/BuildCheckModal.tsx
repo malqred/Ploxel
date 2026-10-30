@@ -2,11 +2,30 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Wrench } from 'lucide-react';
 import { api } from '../../api';
 import { Button } from '../../ui/Button';
-import { Checkbox } from '../../ui/Controls';
+import { Checkbox, Tabs } from '../../ui/Controls';
 import { Modal } from '../../ui/Overlay';
 import { EmptyState } from '../../ui/Common';
 import { useToast } from '../../state/toast';
+import { buildIssueGroup, type BuildIssueGroup } from '../../../shared/build-issues';
 import type { BuildIssue, Instance } from '../../../shared/types';
+
+const GROUPS: { id: BuildIssueGroup; label: string; hint: string }[] = [
+  {
+    id: 'error',
+    label: 'Ошибки',
+    hint: 'С этим игра не запустится: нет обязательной зависимости, мод не для этой версии игры или загрузчика, конфликт или дубликат.'
+  },
+  {
+    id: 'update',
+    label: 'Новые версии',
+    hint: 'Для этих модов вышли обновления. Игра запустится и без них — обновляйте, если нужны исправления и новые функции.'
+  },
+  {
+    id: 'optional',
+    label: 'Необязательные зависимости',
+    hint: 'Игра скорее всего запустится, но часть функций этих модов может не работать или работать некорректно.'
+  }
+];
 
 const CONFIDENCE_LABEL: Record<BuildIssue['confidence'], string> = {
   high: 'точно',
@@ -35,6 +54,7 @@ export function BuildCheckModal({
 }) {
   const [issues, setIssues] = useState<BuildIssue[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [group, setGroup] = useState<BuildIssueGroup>('error');
   const [busy, setBusy] = useState(false);
   const { toast } = useToast();
 
@@ -43,7 +63,9 @@ export function BuildCheckModal({
     try {
       const list = await api.invoke<BuildIssue[]>('deps:check', instance.id);
       setIssues(list);
-      setSelected(new Set(list.filter((i) => i.fixable).map((i) => i.id)));
+      // Сразу отмечены только исправимые ошибки: обновления и необязательное — по желанию
+      setSelected(new Set(list.filter((i) => i.fixable && buildIssueGroup(i) === 'error').map((i) => i.id)));
+      setGroup((cur) => (list.some((i) => buildIssueGroup(i) === cur) ? cur : (GROUPS.find((g) => list.some((i) => buildIssueGroup(i) === g.id))?.id ?? 'error')));
     } catch (e) {
       toast('error', 'Не удалось проверить сборку', e instanceof Error ? e.message : String(e));
       setIssues([]);
@@ -54,9 +76,22 @@ export function BuildCheckModal({
     if (open) void check();
   }, [open, instance.id]);
 
-  const fixable = issues?.filter((i) => i.fixable) ?? [];
+  const shown = issues?.filter((i) => buildIssueGroup(i) === group) ?? [];
+  const counts = Object.fromEntries(GROUPS.map((g) => [g.id, issues?.filter((i) => buildIssueGroup(i) === g.id).length ?? 0])) as Record<BuildIssueGroup, number>;
+  const fixable = shown.filter((i) => i.fixable);
   const allSelected = fixable.length > 0 && fixable.every((i) => selected.has(i.id));
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(fixable.map((i) => i.id)));
+  const someSelected = fixable.some((i) => selected.has(i.id));
+  // «Выбрать все» действует только на открытую вкладку
+  const toggleAll = () =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const i of fixable) {
+        if (allSelected) next.delete(i.id);
+        else next.add(i.id);
+      }
+      return next;
+    });
+  const groupInfo = GROUPS.find((g) => g.id === group)!;
   const toggle = (id: string, on: boolean) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -99,7 +134,7 @@ export function BuildCheckModal({
       open={open}
       onClose={onClose}
       wide
-      title={`Проверка сборки «${instance.name}»`}
+      title={`Поиск неисправностей: «${instance.name}»`}
       actions={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -128,16 +163,27 @@ export function BuildCheckModal({
         />
       ) : (
         <div className="crash-causes">
+          <Tabs
+            value={group}
+            onChange={(g: BuildIssueGroup) => setGroup(g)}
+            items={GROUPS.map((g) => ({ id: g.id, label: g.label, count: counts[g.id] }))}
+          />
+          <p className="small soft build-check__hint">{groupInfo.hint}</p>
+          {shown.length === 0 && (
+            <p className="small muted" style={{ margin: '8px 0' }}>
+              {group === 'error' ? 'Ошибок нет — игра должна запуститься.' : 'Здесь пусто.'}
+            </p>
+          )}
           {fixable.length > 0 && (
             <div className="build-check__bar">
-              <Checkbox checked={allSelected} indeterminate={!allSelected && selected.size > 0} onChange={toggleAll} label="Выбрать все" />
+              <Checkbox checked={allSelected} indeterminate={!allSelected && someSelected} onChange={toggleAll} label="Выбрать все" />
               <button className="build-check__all" onClick={toggleAll}>
                 {allSelected ? 'Снять все' : 'Выбрать все исправимые'}
               </button>
-              <span className="tiny muted">{`Исправимых: ${fixable.length} из ${issues.length}. Остальное решается вручную — подсказка в каждом пункте.`}</span>
+              <span className="tiny muted">{`Исправимых: ${fixable.length} из ${shown.length}. Остальное решается вручную — подсказка в каждом пункте.`}</span>
             </div>
           )}
-          {issues.map((issue) => (
+          {shown.map((issue) => (
             <div className="crash-cause" key={issue.id} data-fixable={issue.fixable ? 'true' : undefined}>
               <div className="row" style={{ alignItems: 'flex-start', gap: 10 }}>
                 {issue.fixable ? (

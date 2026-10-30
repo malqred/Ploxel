@@ -94,6 +94,19 @@ const systemPrompt = () => `Ты — помощник лаунчера Minecraft
 персональные данные. Если в логе нет явной ошибки, скажи, что критических
 ошибок не видно, и предложи, что проверить.`;
 
+/**
+ * Сообщения для модели: инструкция — системным сообщением и ещё раз в начале первого
+ * сообщения пользователя. Некоторые прокси и модели теряют системную роль, и тогда
+ * помощник забывал, что он помощник лаунчера Minecraft («Ploxel — нераспространённое название…»).
+ */
+function withInstruction(system: string, messages: { role: string; content: string }[]): { role: string; content: string }[] {
+  const firstUser = messages.findIndex((m) => m.role === 'user');
+  const copy = messages.map((m, i) =>
+    i === firstUser ? { role: m.role, content: `Инструкция для помощника (выполняй её, отдельно не отвечай):\n${system}\n\n---\n${m.content}` } : m
+  );
+  return [{ role: 'system', content: system }, ...copy];
+}
+
 export async function analyzeLog(rawLog: string, nick?: string): Promise<LogAnalysis> {
   const cfg = resolveAiConfig();
   if (!cfg.apiKey) {
@@ -109,10 +122,9 @@ export async function analyzeLog(rawLog: string, nick?: string): Promise<LogAnal
       model: cfg.model,
       temperature: 0.2,
       max_tokens: 700,
-      messages: [
-        { role: 'system', content: systemPrompt() },
+      messages: withInstruction(systemPrompt(), [
         { role: 'user', content: `Лог лаунчера и игры:\n\n${preview}\n\nЧто случилось и как исправить?` }
-      ]
+      ])
     }),
     signal: AbortSignal.timeout(60000)
   });
@@ -144,16 +156,12 @@ export async function chat(messages: ChatMessage[]): Promise<string> {
       model: cfg.model,
       temperature: 0.4,
       max_tokens: 900,
-      messages: [
-        {
-          role: 'system',
-          content:
-            `Ты — помощник лаунчера Ploxel для Minecraft: Java Edition. ${replyIn()}, кратко и по шагам. ` +
-            'Помогай с выбором версии и загрузчика, памятью, Java, модами, шейдерами, мирами, ошибками и настройками лаунчера. ' +
-            'Не предлагай обходить лицензию и не проси персональные данные.'
-        },
-        ...messages.slice(-12).map((m) => ({ role: m.role, content: m.content }))
-      ]
+      messages: withInstruction(
+        `Ты — помощник лаунчера Ploxel для Minecraft: Java Edition. ${replyIn()}, кратко и по шагам. ` +
+          'Помогай с выбором версии и загрузчика, памятью, Java, модами, шейдерами, мирами, ошибками и настройками лаунчера. ' +
+          'Не предлагай обходить лицензию и не проси персональные данные.',
+        messages.slice(-12).map((m) => ({ role: m.role, content: m.content }))
+      )
     }),
     signal: AbortSignal.timeout(60000)
   });
@@ -224,6 +232,60 @@ export function parseBuildDraft(text: string): AiBuildDraft {
   };
 }
 
+/**
+ * Запрос черновика сборки у модели. Если в ответе нет JSON (пустой ответ, модель
+ * «рассуждала» и упёрлась в лимит, ответила текстом) — один повтор с вдвое большим
+ * лимитом: так бывает у рассуждающих моделей и на перегруженных сервисах.
+ */
+/** Сервисы (адрес + модель), которым инструкция надёжнее доходит внутри сообщения пользователя. */
+const inlineServices = new Set<string>();
+
+async function requestDraft(
+  cfg: { baseUrl: string; apiKey: string; model: string },
+  system: string,
+  description: string,
+  maxTokens: number,
+  timeoutMs: number
+): Promise<AiBuildDraft> {
+  let lastError: unknown;
+  const service = `${cfg.baseUrl}|${cfg.model}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    // Некоторые прокси и модели теряют системное сообщение — тогда инструкция идёт
+    // прямо в сообщении пользователя (так её понимают все OpenAI-совместимые сервисы)
+    const inline = attempt > 0 || inlineServices.has(service);
+    const messages = inline
+      ? [{ role: 'user', content: `${system}\n\nЗапрос пользователя:\n${description}` }]
+      : [
+          { role: 'system', content: system },
+          { role: 'user', content: description }
+        ];
+    const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({
+        model: cfg.model,
+        temperature: 0.3,
+        max_tokens: Math.min(16000, maxTokens * (attempt + 1)),
+        messages
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`ИИ ответил ошибкой ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as { choices: { message: { content: string } }[] };
+    try {
+      const draft = parseBuildDraft(json.choices?.[0]?.message?.content ?? '');
+      if (inline) inlineServices.add(service);
+      return draft;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('ИИ ответил не списком модов. Попробуйте ещё раз или уточните запрос.');
+}
+
 export type ModCountRange = '0-20' | '20-50' | '50-100' | '100-200' | '200+';
 export const MOD_COUNT: Record<ModCountRange, [number, number]> = {
   '0-20': [0, 20],
@@ -271,7 +333,7 @@ export async function draftBuild(description: string, opts: DraftOptions): Promi
 Количество модов: ${min === 0 ? `не больше ${max}` : `от ${min} до ${max}`}.
 ${baseSetRules(opts.gameVersion, opts.loader)}
 Перед ответом проверь каждый мод:
-- он есть на Modrinth, name — его точное английское название там;
+- он есть на Modrinth или CurseForge, name — его точное английское название там;
 - у него есть версия именно для Minecraft ${opts.gameVersion} и загрузчика ${opts.loader} (не бери моды только для ${opts.loader === 'fabric' || opts.loader === 'quilt' ? 'Forge/NeoForge' : 'Fabric'});
 - он совместим со всеми остальными модами списка: никакого OptiFine; не сочетай Sodium с Embeddium/Rubidium, Iris с Oculus, Lithium с Canary/Radium;
 - не дублируй функции: один мод рецептов (JEI, REI или EMI), одна миникарта, один мод подсказок о блоках (Jade, WTHIT или The One Probe);
@@ -280,26 +342,7 @@ ${baseSetRules(opts.gameVersion, opts.loader)}
 Если есть шейдеры, добавь в mods «${shaderLoader}». Библиотеки (Fabric API, Cloth Config, Architectury и т.п.) не перечисляй — лаунчер докачает их сам.
 Ресурспаки и шейдеры добавляй, только если они уместны по запросу.
 name, reason и summary пиши на языке пользователя (${lang}).`;
-  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-    body: JSON.stringify({
-      model: cfg.model,
-      temperature: 0.3,
-      max_tokens: Math.min(14000, Math.max(2000, 600 + max * (big ? 28 : 40))),
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: description }
-      ]
-    }),
-    signal: AbortSignal.timeout(big ? 240000 : 120000)
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`ИИ ответил ошибкой ${res.status}: ${body.slice(0, 200)}`);
-  }
-  const json = (await res.json()) as { choices: { message: { content: string } }[] };
-  const draft = parseBuildDraft(json.choices?.[0]?.message?.content ?? '');
+  const draft = await requestDraft(cfg, system, description, Math.min(14000, Math.max(2000, 600 + max * (big ? 28 : 40))), big ? 240000 : 120000);
   return { ...draft, gameVersion: opts.gameVersion, loader: opts.loader };
 }
 
@@ -323,31 +366,12 @@ export async function draftImprove(
 {"summary":"одна фраза, что изменится","mods":[{"name":"...","reason":"зачем, 3–8 слов"}],"resourcepacks":[...],"shaders":[...]}
 Правила:
 - только НОВЫЕ проекты: не повторяй установленные и не добавляй моды с той же задачей, что у установленных;
-- каждый мод есть на Modrinth (name — точное английское название), у него есть версия для Minecraft ${ctx.gameVersion} и ${ctx.loader};
+- каждый мод есть на Modrinth или CurseForge (name — точное английское название), у него есть версия для Minecraft ${ctx.gameVersion} и ${ctx.loader};
 - всё совместимо с установленными модами и между собой; никакого OptiFine;
 - аддоны — только если их основа уже стоит или тоже добавляется;
 - библиотеки (Fabric API, Cloth Config и т.п.) не перечисляй — лаунчер докачает их сам;
 - если для шейдеров нужен загрузчик шейдеров и его нет в сборке — добавь «${ctx.loader === 'forge' ? 'Oculus' : 'Iris Shaders'}».
 reason и summary пиши на языке пользователя (${lang}).`;
-  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-    body: JSON.stringify({
-      model: cfg.model,
-      temperature: 0.3,
-      max_tokens: 4000,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: description }
-      ]
-    }),
-    signal: AbortSignal.timeout(150000)
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`ИИ ответил ошибкой ${res.status}: ${body.slice(0, 200)}`);
-  }
-  const json = (await res.json()) as { choices: { message: { content: string } }[] };
-  const draft = parseBuildDraft(json.choices?.[0]?.message?.content ?? '');
+  const draft = await requestDraft(cfg, system, description, 4000, 150000);
   return { ...draft, gameVersion: ctx.gameVersion, loader: ctx.loader };
 }

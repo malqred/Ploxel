@@ -4,8 +4,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { getRoot } from './paths';
 import { getMinecraftToken } from './microsoft';
-import { getStoredAccount } from './accounts';
+import { activeSkinUrl, getStoredAccount, setAccountSkinUrl } from './accounts';
+import { emit } from './events';
 import type { SkinLayers } from '../../shared/types';
+
+/** fetch с тайм-аутом: зависшее соединение не должно держать вход, загрузку или проверку бесконечно. */
+const fetchT = (url: string, init: RequestInit = {}) => fetch(url, { signal: AbortSignal.timeout(60000), ...init });
+
 
 export interface SkinState {
   current: string | null;
@@ -193,7 +198,7 @@ export async function uploadCurrentSkin(accountId: string, pngDataUrl?: string):
   const form = new FormData();
   form.set('variant', lib.variant);
   form.set('file', new Blob([buf], { type: 'image/png' }), 'skin.png');
-  const res = await fetch('https://api.minecraftservices.com/minecraft/profile/skins', {
+  const res = await fetchT('https://api.minecraftservices.com/minecraft/profile/skins', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token.accessToken}` },
     body: form
@@ -202,16 +207,32 @@ export async function uploadCurrentSkin(accountId: string, pngDataUrl?: string):
     const text = await res.text().catch(() => '');
     throw new Error(`Mojang отклонил скин (${res.status}): ${text.slice(0, 200)}`);
   }
+  await rememberProfileSkin(accountId, res);
   return { ok: true };
 }
 
 export async function resetAccountSkin(accountId: string): Promise<void> {
   const token = await tokenFor(accountId);
-  const res = await fetch('https://api.minecraftservices.com/minecraft/profile/skins/active', {
+  const res = await fetchT('https://api.minecraftservices.com/minecraft/profile/skins/active', {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token.accessToken}` }
   });
   if (!res.ok && res.status !== 204) throw new Error(`Не удалось сбросить скин (${res.status})`);
+  await rememberProfileSkin(accountId, res);
+}
+
+/** Запомнить новый скин аккаунта — по нему рисуется аватар в меню. */
+async function rememberProfileSkin(accountId: string, res: Response): Promise<void> {
+  try {
+    const profile = (await res.json()) as { skins?: { url: string; state?: string }[] };
+    const url = activeSkinUrl(profile);
+    if (url) {
+      setAccountSkinUrl(accountId, url);
+      emit('accounts:changed');
+    }
+  } catch {
+    // пустой ответ (204) — аватар обновится при следующем входе
+  }
 }
 
 export interface CapeInfo {
@@ -223,7 +244,7 @@ export interface CapeInfo {
 
 export async function getCapes(accountId: string): Promise<CapeInfo[]> {
   const token = await tokenFor(accountId);
-  const res = await fetch('https://api.minecraftservices.com/minecraft/profile/capes', {
+  const res = await fetchT('https://api.minecraftservices.com/minecraft/profile/capes', {
     headers: { Authorization: `Bearer ${token.accessToken}` }
   });
   if (!res.ok) throw new Error(`Не удалось получить плащи (${res.status})`);
@@ -234,12 +255,12 @@ export async function getCapes(accountId: string): Promise<CapeInfo[]> {
 export async function setCape(accountId: string, capeId: string | null): Promise<void> {
   const token = await tokenFor(accountId);
   const res = capeId
-    ? await fetch('https://api.minecraftservices.com/minecraft/profile/capes/active', {
+    ? await fetchT('https://api.minecraftservices.com/minecraft/profile/capes/active', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token.accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ capeId })
       })
-    : await fetch('https://api.minecraftservices.com/minecraft/profile/capes/active', {
+    : await fetchT('https://api.minecraftservices.com/minecraft/profile/capes/active', {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token.accessToken}` }
       });

@@ -3,12 +3,24 @@ import { Download, ExternalLink, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import { useSettings } from '../../state/settings';
 import { Button } from '../../ui/Button';
-import { Checkbox } from '../../ui/Controls';
+import { Checkbox, ProgressBar } from '../../ui/Controls';
 import { ConfirmDialog } from '../../ui/Overlay';
 import { useToast } from '../../state/toast';
 import { Section } from './parts';
 import { Markdown } from '../../ui/Markdown';
-import { fmtBytes } from '../../i18n';
+import { fmtBytes, fmtSpeed } from '../../i18n';
+import type { DownloadTask } from '../../../shared/types';
+
+const GITHUB_URL = 'https://github.com/malqred/Ploxel';
+
+/** Знак GitHub (в lucide больше нет логотипов брендов). */
+function GitHubMark() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}
 
 interface UpdateInfo {
   available: boolean;
@@ -28,6 +40,16 @@ export function AboutTab() {
   const [deleteInstances, setDeleteInstances] = useState(false);
   const [deleteAll, setDeleteAll] = useState(false);
   const { toast } = useToast();
+  const [progress, setProgress] = useState<DownloadTask | null>(null);
+
+  // Прогресс скачивания установщика — прямо под кнопкой
+  useEffect(() => {
+    if (!installing) return;
+    return api.on('downloads:changed', (list) => {
+      const task = (list as DownloadTask[]).find((t) => t.title.startsWith('Обновление Ploxel'));
+      if (task) setProgress(task);
+    });
+  }, [installing]);
 
   useEffect(() => {
     if (!info) return;
@@ -108,6 +130,14 @@ export function AboutTab() {
                 </Button>
               )}
             </div>
+            {installing && progress && (progress.bytesTotal ?? 0) > 0 && (
+              <div className="col" style={{ gap: 6, marginTop: 10 }}>
+                <ProgressBar value={progress.bytesDone ?? 0} max={progress.bytesTotal ?? 0} />
+                <span className="tiny muted">
+                  {`Скачано ${fmtBytes(progress.bytesDone ?? 0)} из ${fmtBytes(progress.bytesTotal ?? 0)} · ${fmtSpeed(progress.speedBps ?? 0)}`}
+                </span>
+              </div>
+            )}
           </>
         ) : (
           <p className="small muted">
@@ -157,6 +187,12 @@ export function AboutTab() {
         </div>
       </Section>
 
+      <div className="about-github">
+        <Button variant="secondary" icon={<GitHubMark />} onClick={() => api.shell.openExternal(GITHUB_URL)}>
+          Ploxel на GitHub
+        </Button>
+      </div>
+
       <ConfirmDialog
         open={uninstallOpen}
         title="Удалить Ploxel?"
@@ -167,7 +203,7 @@ export function AboutTab() {
           setUninstallOpen(false);
           void api
             .invoke<{ scheduled: boolean; removedInstances: boolean; warning?: string }>('app:uninstall', {
-              deleteInstances: deleteInstances || deleteAll,
+              deleteInstances,
               deleteAllData: deleteAll
             })
             .then((res) => {
@@ -183,13 +219,8 @@ export function AboutTab() {
           Будет удалена папка этой версии Ploxel и её ярлыки. Другие установленные версии лаунчера и файлы,
           которые к нему не относятся, не затрагиваются.
         </p>
-        <label className="row" style={{ gap: 10, marginTop: 12, cursor: deleteAll ? 'default' : 'pointer' }}>
-          <Checkbox
-            checked={deleteInstances || deleteAll}
-            onChange={setDeleteInstances}
-            disabled={deleteAll}
-            label="Также удалить мои сборки"
-          />
+        <label className="row" style={{ gap: 10, marginTop: 12, cursor: 'pointer' }}>
+          <Checkbox checked={deleteInstances} onChange={setDeleteInstances} label="Также удалить мои сборки" />
           <span className="col" style={{ gap: 2 }}>
             <span>Также удалить мои сборки</span>
             <span className="tiny muted">
@@ -198,13 +229,14 @@ export function AboutTab() {
           </span>
         </label>
         <label className="row" style={{ gap: 10, marginTop: 12, cursor: 'pointer' }}>
-          <Checkbox checked={deleteAll} onChange={setDeleteAll} label="Удалить все данные Ploxel" />
+          <Checkbox checked={deleteAll} onChange={setDeleteAll} label="Также удалить мои данные" />
           <span className="col" style={{ gap: 2 }}>
-            <span>Удалить все данные Ploxel</span>
+            <span>Также удалить мои данные</span>
             <span className="tiny muted">
-              Не останется ничего: сборки и миры, аккаунты, настройки, ключ ИИ, скины, переписка с помощником,
-              скачанные версии игры, Java, кэш и ярлыки сборок. Данные общие для всех версий Ploxel на этом
-              компьютере. Отменить это будет нельзя.
+              Аккаунты и вход через Microsoft и Ely.by, настройки, ключ ИИ, переписка с помощником, скины, кэш,
+              скачанные версии игры и Java, логи и ярлыки сборок. Сборки и резервные копии миров останутся, если не
+              отмечена первая галочка. Данные общие для всех версий Ploxel на этом компьютере. Отменить это будет
+              нельзя.
             </span>
           </span>
         </label>

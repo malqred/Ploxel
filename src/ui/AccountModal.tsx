@@ -4,6 +4,7 @@ import { api } from '../api';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Overlay';
 import { TextField } from '../ui/TextField';
+import { ElyLoginForm } from './ElyLoginForm';
 import { useToast } from '../state/toast';
 import { useSettings } from '../state/settings';
 import type { Account, AccountView } from '../../shared/types';
@@ -18,7 +19,7 @@ interface DeviceInfo {
 }
 
 /**
- * Окно аккаунта: офлайн-ник или вход Microsoft.
+ * Окно аккаунта: офлайн-ник, вход Microsoft или Ely.by.
  * Появляется по клику на профиль в сайдбаре.
  */
 export function AccountModal({
@@ -152,6 +153,21 @@ export function AccountModal({
             </section>
           </div>
 
+          <section className="account-modal__ely">
+            <h3 className="account-modal__title">Ely.by — свой скин без лицензии</h3>
+            <p className="small muted">
+              Бесплатный аккаунт ely.by: ник и скин видны в игре, на серверах с поддержкой Ely.by — и другим игрокам.
+            </p>
+            <ElyLoginForm
+              onDone={async (acc) => {
+                await load();
+                onChanged();
+                toast('success', 'Вход через Ely.by выполнен', acc.name);
+                onClose();
+              }}
+            />
+          </section>
+
           {accounts.length > 0 && (
             <section className="account-modal__list">
               <span className="field__label">Сохранённые аккаунты</span>
@@ -176,7 +192,7 @@ export function AccountModal({
                   <span className="col grow" style={{ gap: 1 }}>
                     <span style={{ fontWeight: 600 }}>{acc.name}</span>
                     <span className="tiny muted">
-                      {acc.type === 'microsoft' ? 'Microsoft' : 'Офлайн-профиль'} ·{' '}
+                      {acc.type === 'microsoft' ? 'Microsoft' : acc.type === 'elyby' ? 'Ely.by' : 'Офлайн-профиль'} ·{' '}
                       {acc.sessionState === 'valid'
                         ? 'сессия активна'
                         : acc.sessionState === 'expired'

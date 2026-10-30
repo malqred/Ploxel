@@ -1,7 +1,12 @@
 import { getConfig } from './config';
 import { getSecret } from './secrets';
-import { upsertMicrosoftAccount, getRefreshToken, getStoredAccount, listAccountViews } from './accounts';
+import { upsertMicrosoftAccount, getRefreshToken, getStoredAccount, listAccountViews, activeSkinUrl } from './accounts';
 import type { Account } from '../../shared/types';
+import { getElyToken } from './elyby';
+
+/** fetch с тайм-аутом: зависшее соединение не должно держать вход, загрузку или проверку бесконечно. */
+const fetchT = (url: string, init: RequestInit = {}) => fetch(url, { signal: AbortSignal.timeout(30000), ...init });
+
 
 const SCOPE = 'XboxLive.signin offline_access';
 // Аккаунты Minecraft — всегда личные аккаунты Microsoft, поэтому начинаем с
@@ -57,7 +62,7 @@ function clientId(): string {
 }
 
 async function postForm(url: string, body: Record<string, string>): Promise<Record<string, unknown>> {
-  const res = await fetch(url, {
+  const res = await fetchT(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(body).toString()
@@ -70,7 +75,7 @@ async function postForm(url: string, body: Record<string, string>): Promise<Reco
 async function postJson(url: string, body: unknown, token: string): Promise<Record<string, unknown>> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  const res = await fetchT(url, { method: 'POST', headers, body: JSON.stringify(body) });
   return (await res.json()) as Record<string, unknown>;
 }
 
@@ -210,7 +215,7 @@ async function finishLogin(msAccessToken: string, refreshToken: string, expiresI
   }
   console.log('[auth] XBL ок');
 
-  const xstsRes = await fetch('https://xsts.auth.xboxlive.com/xsts/authorize', {
+  const xstsRes = await fetchT('https://xsts.auth.xboxlive.com/xsts/authorize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
@@ -231,7 +236,7 @@ async function finishLogin(msAccessToken: string, refreshToken: string, expiresI
   }
   const uhs = ((xsts.DisplayClaims as { xui: { uhs: string }[] })?.xui?.[0]?.uhs) ?? '';
 
-  const mcRes = await fetch('https://api.minecraftservices.com/authentication/login_with_xbox', {
+  const mcRes = await fetchT('https://api.minecraftservices.com/authentication/login_with_xbox', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ identityToken: `XBL3.0 x=${uhs};${String(xsts.Token)}` })
@@ -244,7 +249,7 @@ async function finishLogin(msAccessToken: string, refreshToken: string, expiresI
   }
   console.log('[auth] Minecraft-токен получен');
 
-  const profileRes = await fetch('https://api.minecraftservices.com/minecraft/profile', {
+  const profileRes = await fetchT('https://api.minecraftservices.com/minecraft/profile', {
     headers: { Authorization: `Bearer ${mcToken}` }
   });
   if (!profileRes.ok) {
@@ -252,14 +257,14 @@ async function finishLogin(msAccessToken: string, refreshToken: string, expiresI
     console.warn('[auth] профиль Minecraft', profileRes.status, JSON.stringify(body).slice(0, 400));
     throw describeMinecraftError(profileRes.status, body, 'profile');
   }
-  const profile = (await profileRes.json()) as { id?: string; name?: string; skins?: { url: string }[] };
+  const profile = (await profileRes.json()) as { id?: string; name?: string; skins?: { url: string; state?: string }[] };
 
   const account = upsertMicrosoftAccount({
     name: profile.name ?? 'Player',
     uuid: formatUuid(profile.id ?? ''),
     refreshToken,
     expiresAt: new Date(Date.now() + Number(mc.expires_in ?? expiresIn) * 1000).toISOString(),
-    skinUrl: profile.skins?.[0]?.url
+    skinUrl: activeSkinUrl(profile)
   });
   tokenCache.set(account.id, {
     accessToken: mcToken,
@@ -302,6 +307,7 @@ export async function getMinecraftToken(accountId: string): Promise<{ accessToke
   if (account.type === 'offline') {
     return { accessToken: 'offline', uuid: account.uuid, name: account.name };
   }
+  if (account.type === 'elyby') return getElyToken(accountId);
   await refreshAccount(accountId);
   const fresh = tokenCache.get(accountId);
   if (!fresh) throw new AuthError('REFRESH', 'Не удалось получить токен. Войдите заново.');

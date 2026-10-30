@@ -148,6 +148,12 @@ export function SkinsScreen() {
   };
 
   const applyToAccount = async () => {
+    if (account?.type === 'elyby') {
+      // У Ely.by нет API загрузки скина: файл загружается на сайте
+      toast('info', 'Скин Ely.by меняется на сайте', 'Скачайте скин кнопкой «Скачать скин» и загрузите его на ely.by.');
+      void api.shell.openExternal('https://ely.by');
+      return;
+    }
     if (!account || account.type !== 'microsoft') {
       toast('warning', 'Нужен аккаунт Microsoft', 'Офлайн-скин виден только в предпросмотре.');
       return;
@@ -331,6 +337,11 @@ export function SkinsScreen() {
             <p className="small muted">
               Скин и плащ меняются через официальный API Minecraft. Если сервер не показывает скин сразу,
               подождите минуту и перезайдите.
+            </p>
+          ) : account?.type === 'elyby' ? (
+            <p className="small muted">
+              Аккаунт Ely.by: в игре виден скин, загруженный на сайте ely.by. Нарисуйте скин здесь, скачайте его и
+              загрузите на ely.by — его увидят игроки с Ely.by и серверы с его поддержкой.
             </p>
           ) : (
             <p className="small muted">

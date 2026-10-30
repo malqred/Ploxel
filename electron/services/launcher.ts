@@ -1,4 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { trackScreenshots } from './screenshots';
+import { ensureAuthlibInjector } from './authlib';
+import { elyJavaAgent } from '../core/elyby';
 import fs from 'node:fs';
 import { BrowserWindow } from 'electron';
 import { data, instanceDir } from './paths';
@@ -103,6 +106,13 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
       onProgress: (done, total, phase) => updateTask(taskId, { detail: phase, done, total })
     });
 
+    // Ely.by: authlib-injector направляет вход и скины игры на Ely.by
+    let elyAgent: string | null = null;
+    if (account.type === 'elyby') {
+      updateTask(taskId, { detail: 'Подготовка Ely.by' });
+      elyAgent = await ensureAuthlibInjector((line) => log(line));
+    }
+
     const gameDir = instanceDir(instanceId);
     const memory = instance.memoryMb ?? settings.general.memoryMb ?? 4096;
     const supportsQuickPlay = compareVersions(instance.gameVersion, '1.20') >= 0;
@@ -126,7 +136,8 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
       playerName: token.name,
       uuid: token.uuid,
       accessToken: account.type === 'offline' ? '0'.repeat(32) : token.accessToken,
-      userType: account.type === 'offline' ? 'legacy' : 'msa',
+      userType: account.type === 'offline' ? 'legacy' : account.type === 'elyby' ? 'mojang' : 'msa',
+      extraJvmArgList: elyAgent ? [elyJavaAgent(elyAgent)] : undefined,
       memoryMb: memory,
       extraJvmArgs: instance.jvmArgs ?? settings.java.jvmArgs,
       launcherVersion: '0.1.0',
@@ -150,12 +161,18 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
     emit('game:started', { instanceId, pid: child.pid });
     await updateInstance(instanceId, { lastPlayedAt: new Date().toISOString() });
 
+    // Снимки экрана: запоминаем, в каком мире они сделаны
+    const shots = trackScreenshots(instanceId);
     let outBuffer = '';
     const onChunk = (chunk: Buffer) => {
       outBuffer += chunk.toString('utf8');
       const parts = outBuffer.split(/\r?\n/);
       outBuffer = parts.pop() ?? '';
-      for (const line of parts) if (line.length) appendLog(instanceId, line, 'out');
+      for (const line of parts) {
+        if (!line.length) continue;
+        appendLog(instanceId, line, 'out');
+        shots.onLine(line);
+      }
     };
     child.stdout?.on('data', onChunk);
     child.stderr?.on('data', (c: Buffer) => {
@@ -164,6 +181,7 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
     });
 
     child.on('error', (err) => {
+      shots.stop();
       appendLog(instanceId, `Ошибка процесса: ${err.message}`, 'launcher');
       running.delete(instanceId);
       currentLaunchInstance = null;
@@ -171,6 +189,8 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
     });
 
     child.on('close', async (code) => {
+      // Последний снимок мог записаться в момент выхода — даём наблюдателю его заметить
+      setTimeout(() => shots.stop(), 1500);
       running.delete(instanceId);
       if (currentLaunchInstance === instanceId) currentLaunchInstance = null;
       const crashed = code !== 0 && code !== null;

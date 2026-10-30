@@ -1,7 +1,7 @@
 {
   "name": "ploxel-launcher",
   "productName": "Ploxel",
-  "version": "1.0.3",
+  "version": "1.2.0",
   "description": "Ploxel — лаунчер Minecraft: Java Edition",
   "author": {
     "name": "Ploxel Team"
@@ -13,7 +13,7 @@
     "dev": "node scripts/dev.mjs",
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build",
-    "build": "npm run build:renderer && npm run build:main",
+    "build": "npm run build:renderer && npm run build:main && node scripts/make-release-config.mjs",
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

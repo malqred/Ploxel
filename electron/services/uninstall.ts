@@ -4,7 +4,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { getRoot } from './paths';
 import { launchOutsideApp } from './detached';
-import { buildCleanupScript, findUninstaller, installedAppDir, ownInstancesDir, ownMovedDataRoot, ownUserDataDir, type FullCleanup } from '../core/uninstall';
+import {
+  buildCleanupScript,
+  findUninstaller,
+  installedAppDir,
+  ownInnerDataRoot,
+  ownInstancesDir,
+  ownMovedDataRoot,
+  ownUserDataDir,
+  rootEntriesToDelete,
+  type FullCleanup
+} from '../core/uninstall';
 
 export interface UninstallResult {
   scheduled: boolean;
@@ -25,13 +35,29 @@ export function uninstallLauncher(options: { deleteInstances?: boolean; deleteAl
 
   // Полное удаление: всё стирается сценарием после выхода лаунчера
   // (пока он работает, файлы данных заняты)
+  // Галочки независимы: «данные» без «сборок» — стираем всё своё, кроме сборок
+  // и резервных копий миров
   let full: FullCleanup | null = null;
   if (options.deleteAllData) {
-    const userData = ownUserDataDir(app.getPath('userData'), process.env.APPDATA ?? '');
-    const movedRoot = ownMovedDataRoot(getRoot(), app.getPath('userData'));
-    full = { userData, movedRoot, desktop: app.getPath('desktop') };
-    removedInstances = true;
-    if (!userData) warning = 'Папка настроек лежит не на стандартном месте — она оставлена, удалите её вручную.';
+    const keepInstances = !options.deleteInstances;
+    const ud = app.getPath('userData');
+    let userData = ownUserDataDir(ud, process.env.APPDATA ?? '');
+    const movedRoot = ownMovedDataRoot(getRoot(), ud, keepInstances);
+    const inner = keepInstances ? ownInnerDataRoot(getRoot(), ud) : null;
+    // Корень где-то глубже внутри userData — не угадываем, что можно стереть
+    if (keepInstances && userData && !movedRoot && !inner) {
+      userData = null;
+      warning = 'Папка данных лежит в необычном месте — данные оставлены, чтобы не задеть сборки.';
+    }
+    full = {
+      userData,
+      movedRoot,
+      desktop: app.getPath('desktop'),
+      keepInstances,
+      innerRoot: inner ? { ...inner, entries: rootEntriesToDelete(inner.root, true) } : null
+    };
+    removedInstances = !keepInstances;
+    if (!userData && !warning) warning = 'Папка настроек лежит не на стандартном месте — она оставлена, удалите её вручную.';
   }
 
   if (options.deleteInstances && !options.deleteAllData) {

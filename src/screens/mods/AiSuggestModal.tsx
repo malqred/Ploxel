@@ -101,7 +101,7 @@ export function AiSuggestModal({
         gameVersion: pick.gameVersion,
         loader: pick.loader,
         memoryMb: settings?.general.memoryMb,
-        items: selected.map((i) => ({ projectId: i.project.id, kind: i.kind, title: i.project.title, iconUrl: i.project.iconUrl }))
+        items: selected.map((i) => ({ projectId: i.project.id, source: i.project.source, kind: i.kind, title: i.project.title, iconUrl: i.project.iconUrl }))
       });
       toast('info', `Сборка «${created.name}» создана`, 'Моды устанавливаются в фоне — прогресс в меню слева.');
       onCreated?.(created);

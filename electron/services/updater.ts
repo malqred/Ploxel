@@ -1,7 +1,5 @@
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { app } from 'electron';
 import { getConfig } from './config';
 import { p } from './paths';
@@ -102,20 +100,24 @@ export async function downloadAndRunUpdate(info: UpdateInfo): Promise<string> {
   if (!info.available || !info.url) throw new Error('Обновление недоступно');
   const dest = p('downloads', `Ploxel-Setup-${info.version}.exe`);
   await fsp.mkdir(path.dirname(dest), { recursive: true });
-  await downloadMany([{ url: info.url, dest }], { onProgress: () => {} });
-  if (info.sha256) {
-    const hash = await new Promise<string>((resolve, reject) => {
-      const h = crypto.createHash('sha256');
-      const stream = fs.createReadStream(dest);
-      stream.on('data', (c) => h.update(c));
-      stream.on('error', reject);
-      stream.on('end', () => resolve(h.digest('hex')));
-    });
-    if (hash.toLowerCase() !== info.sha256.toLowerCase()) {
-      await fsp.rm(dest, { force: true });
-      throw new Error('Хэш установщика не совпал — загрузка отменена');
-    }
-  }
+  // Установщик скачивается в первую очередь (впереди файлов сборок) и в
+  // несколько потоков; размер и SHA-256 проверяет сам загрузчик. Старый
+  // файл без хэша не используем — вдруг он неполный.
+  if (!info.sha256) await fsp.rm(dest, { force: true });
+  await downloadMany(
+    [
+      {
+        url: info.url,
+        dest,
+        size: info.size,
+        sha256: info.sha256,
+        priority: 'high',
+        threads: 4,
+        title: `Обновление Ploxel ${info.version}`
+      }
+    ],
+    { onProgress: () => {} }
+  );
   // /S — без мастера, в ту же папку; --force-run — запустить Ploxel после установки
   // Установщик должен пережить закрытие лаунчера (иначе Electron его убьёт)
   launchOutsideApp(dest, ['/S', '--force-run']);

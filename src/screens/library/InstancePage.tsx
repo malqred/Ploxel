@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Wand2,
   ArrowLeft,
+  ArrowRightLeft,
   Clock3,
   Copy,
   Download,
@@ -36,10 +37,12 @@ import { BuildCheckModal } from './BuildCheckModal';
 import { AiImproveModal } from './AiImproveModal';
 import { InstanceSettingsModal } from './InstanceSettingsModal';
 import { WorldsScreen } from '../WorldsScreen';
+import { TransferModModal } from './TransferModModal';
+import { ScreenshotsTab } from './ScreenshotsTab';
 import type { CatalogProject, CatalogVersion, Instance, InstalledMod } from '../../../shared/types';
 
 type Kind = 'mod' | 'resourcepack' | 'shader';
-type Tab = Kind | 'worlds';
+type Tab = Kind | 'worlds' | 'shots';
 type Filter = 'all' | 'enabled' | 'disabled' | 'updates';
 
 /** Категории модов Modrinth (у ресурспаков и шейдеров свои — для них фильтра нет). */
@@ -98,7 +101,7 @@ export function InstancePage({
   const [items, setItems] = useState<InstalledMod[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState<Tab>('mod');
-  const kind: Kind = tab === 'worlds' ? 'mod' : tab;
+  const kind: Kind = tab === 'worlds' || tab === 'shots' ? 'mod' : tab;
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [category, setCategory] = useState('');
@@ -116,6 +119,7 @@ export function InstancePage({
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [project, setProject] = useState<{ project: CatalogProject; kind: ContentType } | null>(null);
   const [toRemove, setToRemove] = useState<InstalledMod | null>(null);
+  const [toTransfer, setToTransfer] = useState<InstalledMod | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [worlds, setWorlds] = useState(0);
   const { toast } = useToast();
@@ -421,11 +425,12 @@ export function InstancePage({
               }}
               items={[
                 ...KIND_TABS.map((t) => ({ id: t.id as Tab, label: t.label, count: counts[t.id] })),
-                { id: 'worlds' as Tab, label: 'Миры' }
+                { id: 'worlds' as Tab, label: 'Миры' },
+                { id: 'shots' as Tab, label: 'Снимки' }
               ]}
             />
             <div className="grow" />
-            {tab !== 'worlds' && (
+            {tab !== 'worlds' && tab !== 'shots' && (
               <div className="instance-toolbar__actions">
                 {aiOn && instance.loader.kind !== 'vanilla' && (
                   <Button variant="secondary" size="sm" icon={<Wand2 size={15} />} onClick={() => setImproveOpen(true)}>
@@ -451,6 +456,8 @@ export function InstancePage({
 
           {tab === 'worlds' ? (
             <WorldsScreen instanceId={instance.id} embedded />
+          ) : tab === 'shots' ? (
+            <ScreenshotsTab instanceId={instance.id} />
           ) : (
           <>
           <div className="instance-toolbar">
@@ -579,6 +586,9 @@ export function InstancePage({
                           <RotateCcw size={14} />
                         </IconButton>
                       )}
+                      <IconButton label="Перенести в другую сборку" size="sm" ghost onClick={() => setToTransfer(mod)}>
+                        <ArrowRightLeft size={14} />
+                      </IconButton>
                       <IconButton label="Удалить из сборки" size="sm" ghost onClick={() => setToRemove(mod)}>
                         <Trash2 size={14} />
                       </IconButton>
@@ -594,12 +604,12 @@ export function InstancePage({
 
         <aside className="instance-page__aside">
           <section className="panel">
-            <h3 className="panel__title">Здоровье сборки</h3>
+            <h3 className="panel__title">Поиск неисправностей</h3>
             <p className="small muted" style={{ margin: '6px 0 12px' }}>
               Найдёт недостающие зависимости, конфликты, дубликаты и устаревшие версии. Исправляет только то, что вы отметите.
             </p>
             <Button variant="secondary" block icon={<Wrench size={15} />} onClick={() => setBuildCheckOpen(true)}>
-              Проверить сборку
+              Найти неисправности
             </Button>
           </section>
           <section className="panel instance-page__tools">
@@ -680,6 +690,16 @@ export function InstancePage({
         instance={instance}
         onClose={() => setBuildCheckOpen(false)}
         onChanged={() => {
+          void reload();
+          onChanged();
+        }}
+      />
+
+      <TransferModModal
+        mod={toTransfer}
+        instance={instance}
+        onClose={() => setToTransfer(null)}
+        onDone={() => {
           void reload();
           onChanged();
         }}

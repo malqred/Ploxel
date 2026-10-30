@@ -4,6 +4,7 @@ import { api } from '../api';
 import { Button } from '../ui/Button';
 import { Checkbox } from '../ui/Controls';
 import { ScreenHeader, EmptyState } from '../ui/Common';
+import { Modal } from '../ui/Overlay';
 import { useToast } from '../state/toast';
 import { fmtBytes } from '../i18n';
 import type {
@@ -29,6 +30,11 @@ export function ImportScreen() {
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  // Предложить удалить перенесённые сборки в старом лаунчере (спросим ещё раз в конце)
+  const [offerDelete, setOfferDelete] = useState(false);
+  const [toDelete, setToDelete] = useState<ImportResult[]>([]);
+  const [deleteChecked, setDeleteChecked] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
   const { toast } = useToast();
 
   const detect = async (extraPaths?: string[]) => {
@@ -91,6 +97,30 @@ export function ImportScreen() {
     const ok = results.length;
     toast(ok ? 'success' : 'error', ok ? `Импортировано сборок: ${ok}` : 'Импорт не удался', ok ? 'Откройте «Сборки», чтобы проверить.' : undefined);
     setSelected(new Set());
+    const deletable = results.filter((r) => r.sourceDeletable && r.sourcePath);
+    if (offerDelete && deletable.length) {
+      setToDelete(deletable);
+      setDeleteChecked(new Set(deletable.map((r) => r.sourcePath!)));
+    }
+    await detect();
+  };
+
+  const deleteSources = async () => {
+    setDeleting(true);
+    let done = 0;
+    const failed: string[] = [];
+    for (const r of toDelete.filter((x) => deleteChecked.has(x.sourcePath!))) {
+      try {
+        await api.invoke('import:deleteSource', r.sourcePath);
+        done++;
+      } catch (e) {
+        failed.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    setDeleting(false);
+    setToDelete([]);
+    if (done) toast('success', `Удалено в старых лаунчерах: ${done}`, 'Папки перемещены в корзину Windows.');
+    if (failed.length) toast('error', 'Не всё удалось удалить', failed.join('; '));
     await detect();
   };
 
@@ -140,7 +170,7 @@ export function ImportScreen() {
     >
       <ScreenHeader
         title="Импорт"
-        sub="Найдём сборки в других лаунчерах. Оригиналы не изменяются и не удаляются."
+        sub="Найдём сборки в других лаунчерах. Оригиналы не меняются; удалить их можно только по вашему выбору."
         actions={
           <>
             <Button variant="secondary" icon={<FolderSearch size={15} />} onClick={pickFolder}>
@@ -194,6 +224,16 @@ export function ImportScreen() {
               </span>
             ))}
           </div>
+          <label className="row" style={{ gap: 10, cursor: 'pointer', alignItems: 'flex-start' }}>
+            <Checkbox checked={offerDelete} onChange={setOfferDelete} label="Предложить удалить сборки в старом лаунчере" />
+            <span className="col" style={{ gap: 2 }}>
+              <span className="small">Предложить удалить сборки в старом лаунчере</span>
+              <span className="tiny muted">
+                После переноса лаунчер ещё раз спросит, какие сборки убрать. Папки уйдут в корзину Windows. Общая папка
+                .minecraft официального лаунчера и TLauncher не удаляется.
+              </span>
+            </span>
+          </label>
           <span className="tiny muted">
             Аккаунты и токены не импортируются никогда. Режим ссылок может не сработать на другом диске — тогда
             файлы копируются.
@@ -272,9 +312,58 @@ export function ImportScreen() {
         </section>
       )}
 
+      <Modal
+        open={toDelete.length > 0}
+        onClose={() => !deleting && setToDelete([])}
+        title="Удалить сборки в старых лаунчерах?"
+        actions={
+          <>
+            <Button variant="secondary" disabled={deleting} onClick={() => setToDelete([])}>
+              Оставить всё
+            </Button>
+            <Button variant="danger" loading={deleting} disabled={!deleteChecked.size} onClick={deleteSources}>
+              {`Удалить выбранные (${deleteChecked.size})`}
+            </Button>
+          </>
+        }
+      >
+        <p className="small">
+          Сборки уже перенесены в Ploxel. Отметьте, какие убрать из старых лаунчеров: их папки переместятся в корзину
+          Windows, оттуда их можно вернуть.
+        </p>
+        <div className="col" style={{ gap: 8, marginTop: 12 }}>
+          {toDelete.map((r) => (
+            <label key={r.sourcePath} className="row" style={{ gap: 10, cursor: 'pointer', alignItems: 'flex-start' }}>
+              <Checkbox
+                checked={deleteChecked.has(r.sourcePath!)}
+                onChange={(v) =>
+                  setDeleteChecked((prev) => {
+                    const next = new Set(prev);
+                    if (v) next.add(r.sourcePath!);
+                    else next.delete(r.sourcePath!);
+                    return next;
+                  })
+                }
+                label={r.name}
+              />
+              <span className="col" style={{ gap: 2, minWidth: 0 }}>
+                <span className="small" style={{ fontWeight: 600 }}>
+                  <span data-i18n-skip>{r.name}</span>
+                  {r.launcherName ? <span className="muted">{` · ${r.launcherName}`}</span> : null}
+                </span>
+                <span className="tiny muted truncate" title={r.sourcePath} data-i18n-skip>
+                  {r.sourcePath}
+                </span>
+                {r.sourceSize ? <span className="tiny muted">{fmtBytes(r.sourceSize)}</span> : null}
+              </span>
+            </label>
+          ))}
+        </div>
+      </Modal>
+
       {allInstances.some((i) => i.mods > 0) && (
         <p className="tiny muted row" style={{ gap: 6 }}>
-          <CheckCircle2 size={13} /> После импорта можно нажать «Проверить сборку» — лаунчер найдёт недостающие
+          <CheckCircle2 size={13} /> После импорта можно нажать «Найти неисправности» — лаунчер найдёт недостающие
           зависимости и дубликаты.
         </p>
       )}

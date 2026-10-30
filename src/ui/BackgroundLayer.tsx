@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { Settings } from '../../shared/types';
 import { AnimatedScene } from './AnimatedBackground';
 
@@ -12,7 +13,8 @@ interface Props {
 export function BackgroundLayer({ settings, paused }: Props) {
   const a = settings?.appearance;
   const kind = a?.background.kind ?? 'theme';
-  const custom = kind === 'solid' || kind === 'gradient';
+  const media = kind === 'media' && a?.background.mediaFile ? a.background : null;
+  const custom = kind === 'solid' || kind === 'gradient' || !!media;
 
   let style: React.CSSProperties = {};
   if (kind === 'solid' && a) style = { background: a.background.color };
@@ -35,8 +37,39 @@ export function BackgroundLayer({ settings, paused }: Props) {
         style={style}
       >
         {kind === 'animated' && a && <AnimatedScene id={a.background.animatedId} />}
+        {media && (
+          <MediaBackground
+            file={media.mediaFile!}
+            type={media.mediaType ?? 'image'}
+            paused={!!paused || a?.motion === 'off'}
+          />
+        )}
       </div>
-      <div className={`bg-veil ${custom ? 'bg-veil--custom' : ''}`} />
+      <div
+        className={`bg-veil ${custom ? 'bg-veil--custom' : ''}`}
+        style={media ? { ['--media-dim' as string]: String(media.mediaDim ?? 0.5) } : undefined}
+        data-media={media ? 'true' : undefined}
+      />
     </>
   );
+}
+
+/** Адрес своего фона для окна (файл лежит в папке backgrounds). */
+export function backgroundUrl(file: string): string {
+  return `ploxel-media://bg/${encodeURIComponent(file)}`;
+}
+
+/** Своя картинка, GIF или видео: видео без звука и по кругу. */
+export function MediaBackground({ file, type, paused }: { file: string; type: 'image' | 'video'; paused?: boolean }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    if (paused) v.pause();
+    else void v.play().catch(() => undefined);
+  }, [paused, file]);
+  if (type === 'video') {
+    return <video ref={ref} className="bg-media" src={backgroundUrl(file)} autoPlay={!paused} muted loop playsInline disablePictureInPicture />;
+  }
+  return <img className="bg-media" src={backgroundUrl(file)} alt="" draggable={false} />;
 }

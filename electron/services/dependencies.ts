@@ -11,13 +11,14 @@ import path from 'node:path';
 import { instanceDir } from './paths';
 import { contentDir, findDuplicates, persistMods, scanMods } from './mods';
 import { checkUpdates } from './mods';
-import { downloadFile, sha1File } from './downloader';
+import { createTask, downloadFile, finishTask, sha1File, updateTask } from './downloader';
 import type { DownloadItem } from './downloader';
 import { catalogProject, catalogVersions, isCurseForgeAvailable } from './catalog';
 import { readJarMetadata, satisfiesRange } from '../core/jar-meta';
 import { getModrinthVersionsByIds } from './modrinth';
 import { getCurseForgeFilesByIds } from './curseforge';
 import type { JarReadResult } from '../core/jar-meta';
+import { findTwin } from '../core/project-match';
 import type {
   BuildIssue,
   BuildIssueKind,
@@ -51,9 +52,17 @@ const versionCache = new Map<string, Promise<CatalogVersion[]>>();
 const projectCache = new Map<string, Promise<CatalogProject | null>>();
 
 /** Сбросить кэши (полезно после смены ключей/зеркал и в тестах). */
+/** Откуда стоит мод — для подписи в плане установки. */
+function catalogName(source: string | undefined): string {
+  if (source === 'curseforge') return 'из CurseForge';
+  if (source === 'modrinth') return 'из Modrinth';
+  return 'свой файл';
+}
+
 export function clearDependencyCaches(): void {
   versionCache.clear();
   projectCache.clear();
+  jarDepCache.clear();
 }
 
 // ---- типы рёбер зависимостей ----
@@ -198,6 +207,21 @@ export async function buildPlan(
     }
     if (depth === 0 && options.projectName) item.projectName = options.projectName;
 
+    // Тот же мод мог стоять из другого каталога (Fabric API с Modrinth, а мод — с CurseForge):
+    // второй файл — дубликат, игра с ним не запустится
+    const twin = project ? findTwin({ title: project.title, slug: project.slug, id: depProjectId, source: depSource }, installed) : undefined;
+    if (twin) {
+      const from = catalogName(twin.source);
+      if (depth > 0) {
+        item.installed = true;
+        item.versionNumber = twin.version;
+        item.fileName = twin.fileName;
+        item.note = `Уже установлен: ${from}`;
+        return item;
+      }
+      addWarning(`«${item.projectName}» уже есть в сборке (${from}). Второй файл того же мода будет дубликатом — старый лучше удалить.`);
+    }
+
     // Встроенные зависимости — отдельный файл ставить не нужно.
     if (edge?.type === 'embedded') {
       item.note = 'Встроено в файл, устанавливать отдельно не нужно';
@@ -328,8 +352,12 @@ export async function installPlan(
     targetPath: string;
   }
   const staged: Staged[] = [];
+  // Несколько файлов — одна строка в загрузках с общим прогрессом (в тестах загрузка подменена)
+  const op = selected.length > 1 && !deps.download ? createTask(`Установка модов: ${selected.length}`, selected[0].projectName) : null;
+  if (op) updateTask(op, { status: 'running', total: selected.length, done: 0 });
   try {
     for (const item of selected) {
+      if (op) updateTask(op, { done: staged.length, detail: item.projectName });
       const versions = await cachedVersions(catalog, item.source, item.projectId, instance.gameVersion, instance.loader.kind);
       const version = (item.versionId && versions.find((v) => v.id === item.versionId)) || versions[0];
       if (!version) throw new Error(`Нет доступной версии мода «${item.projectName}»`);
@@ -352,8 +380,10 @@ export async function installPlan(
     }
   } catch (e) {
     await fsp.rm(staging, { recursive: true, force: true });
+    if (op) finishTask(op, e instanceof Error ? e.message : String(e));
     throw e;
   }
+  if (op) finishTask(op);
 
   // 2) Перемещаем (старые файлы — в бэкап) и 3) пишем метаданные.
   const moved: { targetPath: string; backupPath: string | null }[] = [];
@@ -482,10 +512,11 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
   // Метаданные из самих файлов.
   const metaOf = new Map<string, JarReadResult>();
   for (const m of mods) {
-    const file = path.join(contentDir(instance.id, m.kind), m.fileName);
+    const base = path.join(contentDir(instance.id, m.kind), m.fileName);
+    const file = !m.enabled && !fs.existsSync(base) && fs.existsSync(`${base}.disabled`) ? `${base}.disabled` : base;
     let meta: JarReadResult;
     try {
-      meta = readJarMetadata(file);
+      meta = readJarMetadata(file, instance.loader.kind);
     } catch {
       meta = { file, provides: [], depends: {}, breaks: {}, optional: {}, loaders: [] };
     }
@@ -493,6 +524,8 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
   }
 
   const norm = (s: string) => s.toLowerCase();
+  // «cloth_config», «cloth-config» и «Cloth Config» — одно и то же
+  const compact = (s: string) => s.toLowerCase().replace(/[-_\s.]/g, '');
   // Какие mod-id «покрыты» установленными модами (id + provides + имя как подсказка).
   const satisfied = new Set<string>();
   const idOwners = new Map<string, InstalledMod[]>();
@@ -500,16 +533,126 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
     const meta = metaOf.get(m.id);
     const ids = [...(meta?.id ? [meta.id] : []), ...(meta?.provides ?? []), m.name];
     // Вложенные модули закрывают зависимости, но в конфликты не попадают
-    for (const b of meta?.bundled ?? []) satisfied.add(norm(b));
+    for (const b of meta?.bundled ?? []) {
+      satisfied.add(norm(b));
+      satisfied.add(compact(b));
+    }
     for (const id of ids) {
       const n = norm(id);
       if (!n) continue;
       satisfied.add(n);
+      satisfied.add(compact(id));
       const owners = idOwners.get(n) ?? [];
       if (!owners.includes(m)) owners.push(m);
       idOwners.set(n, owners);
     }
   }
+  // Выключенные моды: зависимость от них — «включите», а не «установите»
+  const disabledOwner = new Map<string, InstalledMod>();
+  for (const m of mods.filter((x) => !x.enabled)) {
+    const meta = metaOf.get(m.id);
+    for (const id of [...(meta?.id ? [meta.id] : []), ...(meta?.provides ?? []), ...(meta?.bundled ?? []), m.name]) {
+      if (id) disabledOwner.set(compact(id), m);
+    }
+  }
+  // id из шаблона примера мода, которые авторы забывают убрать (suggests: another-mod)
+  const PLACEHOLDER = new Set(['anothermod', 'examplemod', 'modid', 'yourmodid', 'yourmod', 'mymod']);
+  const hasFabricApi = satisfied.has('fabricapi') || satisfied.has('fabric');
+  const isSatisfied = (depId: string): boolean => {
+    const c = compact(depId);
+    if (PLACEHOLDER.has(c)) return true;
+    if (satisfied.has(norm(depId)) || satisfied.has(c)) return true;
+    // Модули Fabric API (fabric-*-v1, fabric-api-base) и старый id «fabric»
+    if (hasFabricApi && (c === 'fabric' || c === 'fabricapi' || /^fabric.*(v\d+|base)$/.test(c))) return true;
+    return false;
+  };
+  // Sinytra Connector запускает моды Fabric на Forge/NeoForge
+  const hasConnector = (instance.loader.kind === 'neoforge' || instance.loader.kind === 'forge') && satisfied.has('connector');
+
+  // Загрузчики по данным каталога: если автор отметил версию для загрузчика
+  // сборки, файл подходит, даже если в jar лежат чужие метаданные
+  const catalogInfo: Record<string, { gameVersions: string[]; loaders: string[] }> = {};
+  {
+    const withVersion = active.filter((m) => m.source === 'modrinth' && m.versionId);
+    if (withVersion.length) {
+      try {
+        Object.assign(catalogInfo, await (deps.versionInfo ?? getModrinthVersionsByIds)(withVersion.map((m) => m.versionId!)));
+      } catch {
+        /* без сети — только по файлам */
+      }
+    }
+  }
+  const catalogFits = (m: InstalledMod): boolean => {
+    const loaders = (m.versionId && catalogInfo[m.versionId]?.loaders) || [];
+    const k = instance.loader.kind;
+    return loaders.includes(k) || (k === 'quilt' && loaders.includes('fabric'));
+  };
+  const loaderFits = (m: InstalledMod, loaders: string[]): boolean => {
+    const k = instance.loader.kind;
+    if (loaders.some((l) => loaderFamily(l) === loaderFamily(k))) return true;
+    if (k === 'quilt' && loaders.includes('fabric')) return true;
+    if (hasConnector && loaders.includes('fabric')) return true;
+    return catalogFits(m);
+  };
+  // Проект каталога подходит загрузчику сборки (у библиотек без загрузчиков — подходит)
+  const projectFitsLoader = (p: CatalogProject): boolean => {
+    if (instance.loader.kind === 'vanilla' || !p.loaders?.length) return true;
+    const mod = p.loaders.filter((l) => ['fabric', 'quilt', 'forge', 'neoforge'].includes(l));
+    if (!mod.length) return true;
+    return loaderFits({ id: '', versionId: undefined } as unknown as InstalledMod, mod);
+  };
+  // Одну и ту же недостающую зависимость показываем один раз
+  const reportedMissing = new Set<string>();
+  const missingIssue = async (m: InstalledMod, depId: string, ranges: string[]): Promise<BuildIssue | null> => {
+    const c = compact(depId);
+    if (reportedMissing.has(c)) return null;
+    const off = disabledOwner.get(c);
+    if (off) reportedMissing.add(c);
+    if (off) {
+      return mk(
+        'missing',
+        `Выключена зависимость «${off.name}»`,
+        `Мод «${m.name}» требует «${off.name}», но он выключен.`,
+        `Включить «${off.name}».`,
+        'Минимальная: мод уже есть в сборке.',
+        'high',
+        true,
+        { modId: m.id, via: m.fileName, dep: depId, enableId: off.id }
+      );
+    }
+    const found = await resolveJarDependency(depId, projectFn);
+    // Нашёлся проект под другой загрузчик — это не та зависимость, ставить её нельзя
+    const project = found && projectFitsLoader(found) ? found : null;
+    if (project) {
+      const keys = [project.slug, project.title].filter(Boolean).map((x) => compact(x!));
+      // Тот же проект уже указан (из каталога или другим id) или он есть в сборке
+      const known = keys.some((k) => reportedMissing.has(k)) || [project.slug, project.title].some((x) => x && isSatisfied(x));
+      reportedMissing.add(c);
+      for (const k of keys) reportedMissing.add(k);
+      if (known) return null;
+      return mk(
+        'missing',
+        `Не установлена зависимость «${project.title}»`,
+        `Мод «${m.name}» требует «${project.title}», но его нет в папке mods.`,
+        `Установить «${project.title}» из каталога Modrinth.`,
+        'Зависимости обычно совместимы; возможна подтяжка ещё одной цепочки модов.',
+        'high',
+        true,
+        { modId: m.id, via: m.fileName, dep: depId, ranges, depProjectId: project.id, source: 'modrinth' }
+      );
+    }
+    reportedMissing.add(c);
+    return mk(
+      'missing',
+      `Не установлена зависимость «${depId}»`,
+      `По метаданным файла «${m.name}» требуется мод «${depId}», но он не найден в сборке.`,
+      `Найти и установить «${depId}» в каталоге (id из jar не всегда совпадает с id проекта).`,
+      'Может потребоваться ручной подбор версии.',
+      'medium',
+      false,
+      { modId: m.id, via: m.fileName, dep: depId, ranges }
+    );
+  };
 
   // Зависимости, которые даёт сама сборка (загрузчик), а не моды.
   // В fabric.mod.json загрузчик называется fabricloader, в quilt — quilt_loader.
@@ -524,7 +667,51 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
     javafml: ['forge', 'neoforge'],
     neoforge: ['forge', 'neoforge']
   };
+  // id зависимости → загрузчик, чью версию она задаёт
+  const LOADER_SELF: Record<string, string> = {
+    fabricloader: 'fabric',
+    fabric_loader: 'fabric',
+    'fabric-loader': 'fabric',
+    quilt_loader: 'quilt',
+    'quilt-loader': 'quilt',
+    forge: 'forge',
+    neoforge: 'neoforge'
+  };
   const loaderFamily = (l: string) => (l === 'forge' || l === 'neoforge' ? 'forge' : l);
+
+  // Прогрев кэшей: проекты зависимостей из каталога и поиск проектов по mod-id из jar
+  // запрашиваем параллельно, пачками по 8. Раньше цикл ниже ждал каждый запрос по очереди —
+  // на сборке из 240 модов это сотни запросов подряд и ~40 секунд.
+  {
+    const installedProjectIds = new Set(mods.map((x) => x.projectId).filter(Boolean) as string[]);
+    const tasks: (() => Promise<unknown>)[] = [];
+    const seenTask = new Set<string>();
+    const add = (key: string, run: () => Promise<unknown>) => {
+      if (seenTask.has(key)) return;
+      seenTask.add(key);
+      tasks.push(run);
+    };
+    for (const m of active) {
+      const meta = metaOf.get(m.id);
+      for (const depId of Object.keys(meta?.depends ?? {})) {
+        const key = norm(depId);
+        if (key === 'minecraft' || LOADER_DEP[key] || key === 'java' || key === 'javafml' || key === 'lowcodefml' || isSatisfied(depId)) continue;
+        add(`jar:${depId.toLowerCase()}`, () => resolveJarDependency(depId, projectFn).catch(() => null));
+      }
+      if (m.source === 'local') continue;
+      for (const d of m.dependencies ?? []) {
+        if (!d.required || d.projectId === m.projectId || installedProjectIds.has(d.projectId)) continue;
+        const source = m.source;
+        add(`cat:${source}:${d.projectId}`, () => cachedProject(projectFn, source, d.projectId));
+      }
+    }
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(8, tasks.length) }, async () => {
+        while (next < tasks.length) await tasks[next++]();
+      })
+    );
+  }
 
   for (const m of active) {
     const meta = metaOf.get(m.id)!;
@@ -544,7 +731,7 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
           gameVersionChecked.add(m.id);
         }
       } else if (LOADER_DEP[key]) {
-        if (!LOADER_DEP[key].includes(instance.loader.kind)) {
+        if (!LOADER_DEP[key].includes(instance.loader.kind) && !loaderFits(m, meta.loaders)) {
           issues.push(
             mk(
               'incompatible',
@@ -557,7 +744,12 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
               { modId: m.id, via: m.fileName, dep: depId }
             )
           );
-        } else if (instance.loader.version && !ranges.some((r) => satisfiesRange(instance.loader.version!, r))) {
+        } else if (
+          instance.loader.version &&
+          // Версию сравниваем только со «своим» загрузчиком: номер Forge к NeoForge не относится
+          LOADER_SELF[key] === instance.loader.kind &&
+          !ranges.some((r) => satisfiesRange(instance.loader.version!, r))
+        ) {
           issues.push(
             mk(
               'incompatible',
@@ -574,7 +766,18 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
       }
     }
 
-    // 1) Зависимости: каталог (Modrinth/CF) — если есть, иначе jar-метаданные.
+    // 1а) Зависимости из самого файла — и для модов из каталога: авторы часто не
+    // указывают зависимости на Modrinth, а в jar они записаны
+    for (const [depId, ranges] of Object.entries(meta.depends)) {
+      const key = norm(depId);
+      if (key === 'minecraft' || LOADER_DEP[key] || key === 'java' || key === 'javafml' || key === 'lowcodefml' || isSatisfied(depId)) continue;
+      if (hasConnector && /^(fabricloader|fabric)$/.test(compact(depId))) continue;
+      const issue = await missingIssue(m, depId, ranges);
+      if (issue) issues.push(issue);
+    }
+    // 1б) Зависимости из каталога. Если у файла есть свои метаданные, а там этой
+    // зависимости нет — игра запустится и без неё: это «необязательная» (автор
+    // отметил её на Modrinth, но загрузчик её не требует).
     if (m.dependencies?.length) {
       const installedProjectIds = new Set(mods.map((x) => x.projectId).filter(Boolean) as string[]);
       for (const d of m.dependencies) {
@@ -583,42 +786,45 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
         // с другим модом — сверяем slug и название проекта с mod-id в сборке
         let depProject: CatalogProject | null = null;
         if (m.source !== 'local') depProject = await cachedProject(projectFn, m.source, d.projectId).catch(() => null);
-        if (depProject && [depProject.slug, depProject.title].some((x) => x && satisfied.has(norm(x)))) continue;
+        if (depProject && [depProject.slug, depProject.title].some((x) => x && isSatisfied(x))) continue;
+        // «Универсальный» файл (Fabric + NeoForge в одном jar): Modrinth перечисляет
+        // зависимости сразу для всех загрузчиков — берём только подходящие сборке
+        if (depProject && !projectFitsLoader(depProject)) continue;
         const depName = depProject?.title ?? (await projectTitle(m.source, d.projectId));
+        const depKeys = [depProject?.slug, depProject?.title, depName].filter(Boolean).map((x) => compact(x!));
+        if (depKeys.some((k) => reportedMissing.has(k))) continue;
+        for (const k of depKeys) reportedMissing.add(k);
+        const soft = !!meta.id && !Object.keys(meta.depends).some((id) => depKeys.includes(compact(id)));
         issues.push(
-          mk(
-            'missing',
-            `Не установлена зависимость «${depName}»`,
-            `Мод «${m.name}» требует «${depName}», но его нет в папке mods.`,
-            `Установить «${depName}» из каталога ${m.source === 'curseforge' ? 'CurseForge' : 'Modrinth'}.`,
-            'Зависимости обычно совместимы; возможна подтяжка ещё одной цепочки модов.',
-            'high',
-            true,
-            { modId: m.id, via: m.fileName, depProjectId: d.projectId, source: m.source, versionId: d.versionId }
-          )
+          soft
+            ? mk(
+                'missing',
+                `Рекомендуемая зависимость «${depName}»`,
+                `Автор «${m.name}» указал «${depName}» в каталоге, но сам мод его не требует — игра запустится и без него, часть функций может не работать.`,
+                `Установить «${depName}» из каталога ${m.source === 'curseforge' ? 'CurseForge' : 'Modrinth'}.`,
+                'Минимальная: зависимость не обязательна для запуска.',
+                'medium',
+                true,
+                { modId: m.id, via: m.fileName, depProjectId: d.projectId, source: m.source, versionId: d.versionId, soft: true }
+              )
+            : mk(
+                'missing',
+                `Не установлена зависимость «${depName}»`,
+                `Мод «${m.name}» требует «${depName}», но его нет в папке mods.`,
+                `Установить «${depName}» из каталога ${m.source === 'curseforge' ? 'CurseForge' : 'Modrinth'}.`,
+                'Зависимости обычно совместимы; возможна подтяжка ещё одной цепочки модов.',
+                'high',
+                true,
+                { modId: m.id, via: m.fileName, depProjectId: d.projectId, source: m.source, versionId: d.versionId }
+              )
         );
       }
-    } else {
-      for (const [depId, ranges] of Object.entries(meta.depends)) {
-        const key = norm(depId);
-        if (key === 'minecraft' || LOADER_DEP[key] || key === 'java' || satisfied.has(key)) continue;
-        issues.push(
-          mk(
-            'missing',
-            `Не установлена зависимость «${depId}»`,
-            `По метаданным файла «${m.name}» требуется мод «${depId}», но он не найден в сборке.`,
-            `Найти и установить «${depId}» в каталоге (id из jar не всегда совпадает с id проекта).`,
-            'Может потребоваться ручной подбор версии.',
-            'medium',
-            false,
-            { modId: m.id, via: m.fileName, dep: depId, ranges }
-          )
-        );
-      }
+    }
+    if (!m.dependencies?.length) {
       // Необязательные зависимости — слабее: low-конфиденсия, не чиним автоматически.
       for (const [depId, ranges] of Object.entries(meta.optional ?? {})) {
         const key = norm(depId);
-        if (key === 'java' || key === 'minecraft' || LOADER_DEP[key] || satisfied.has(key)) continue;
+        if (key === 'java' || key === 'minecraft' || LOADER_DEP[key] || isSatisfied(depId)) continue;
         issues.push(
           mk(
             'missing',
@@ -667,9 +873,9 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
     }
 
     // 3) Несовместимость загрузчика по метаданным файла.
-    if (instance.loader.kind !== 'vanilla' && meta.loaders.length) {
-      const ok = meta.loaders.some((l) => loaderFamily(l) === loaderFamily(instance.loader.kind));
-      if (!ok) {
+    const loaderIssueShown = issues.some((i) => i.kind === 'incompatible' && i.payload.modId === m.id && LOADER_DEP[norm(String(i.payload.dep ?? ''))]);
+    if (instance.loader.kind !== 'vanilla' && meta.loaders.length && !loaderIssueShown) {
+      if (!loaderFits(m, meta.loaders)) {
         issues.push(
           mk(
             'incompatible',
@@ -721,7 +927,10 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
     try {
       const infoFn =
         source === 'modrinth' ? (deps.versionInfo ?? getModrinthVersionsByIds) : (deps.cfVersionInfo ?? getCurseForgeFilesByIds);
-      const info = await infoFn(fromCatalog.map((m) => m.versionId!));
+      const info =
+        source === 'modrinth' && fromCatalog.every((m) => catalogInfo[m.versionId!])
+          ? catalogInfo
+          : await infoFn(fromCatalog.map((m) => m.versionId!));
       for (const m of fromCatalog) {
         const v = info[m.versionId!];
         if (v && v.gameVersions.length && !v.gameVersions.includes(instance.gameVersion)) {
@@ -736,6 +945,54 @@ export async function checkBuild(instance: Instance, deps: DependencyDeps = {}):
   }
 
   return issues.concat(await collectDuplicatesAndUpdates(instance, mods, metaOf, checkUpd, mk));
+}
+
+/**
+ * id мода из jar → проект Modrinth. Часто id совпадает со slug проекта
+ * (create, jei, geckolib) или отличается «_»/«-»; для известных
+ * расхождений — таблица. Нашли — зависимость можно поставить кнопкой.
+ */
+const JAR_ID_ALIASES: Record<string, string> = {
+  fabric: 'fabric-api',
+  'cloth-config2': 'cloth-config',
+  cloth_config: 'cloth-config',
+  owo: 'owo-lib',
+  architectury: 'architectury-api',
+  geckolib3: 'geckolib',
+  yet_another_config_lib_v3: 'yacl',
+  yet_another_config_lib: 'yacl',
+  'yet-another-config-lib': 'yacl',
+  puzzleslib: 'puzzles-lib',
+  forgeconfigapiport: 'forge-config-api-port',
+  resourcefullib: 'resourceful-lib',
+  kotlinforforge: 'kotlin-for-forge',
+  bookshelf: 'bookshelf-lib',
+  'cardinal-components': 'cardinal-components-api',
+  supermartijn642corelib: 'supermartijn642s-core-lib',
+  supermartijn642configlib: 'supermartijn642s-config-lib',
+  irons_spellbooks: 'irons-spells-n-spellbooks',
+  moogs_structures: 'moogs-structure-lib',
+  presencefootsteps: 'presence-footsteps'
+};
+const jarDepCache = new Map<string, Promise<CatalogProject | null>>();
+export async function resolveJarDependency(
+  depId: string,
+  projectFn: NonNullable<DependencyDeps['project']>
+): Promise<CatalogProject | null> {
+  const id = depId.toLowerCase();
+  if (!/^[a-z0-9_.-]{2,64}$/.test(id)) return null;
+  const hit = jarDepCache.get(id);
+  if (hit) return hit;
+  const run = (async () => {
+    const candidates = [...new Set([JAR_ID_ALIASES[id], id, id.replace(/_/g, '-')].filter(Boolean) as string[])];
+    for (const slug of candidates) {
+      const project = await cachedProject(projectFn, 'modrinth', slug).catch(() => null);
+      if (project) return project;
+    }
+    return null;
+  })();
+  jarDepCache.set(id, run);
+  return run;
 }
 
 /** Дубликаты (projectId/имя/хэш/одинаковый mod-id) и устаревшие моды. */
@@ -830,6 +1087,7 @@ export type AutoFixActionType =
   | 'replace-version'
   | 'remove-duplicate'
   | 'disable-mod'
+  | 'enable-mod'
   | 'manual';
 
 export interface AutoFixAction {
@@ -850,6 +1108,15 @@ export function planAutoFix(issues: BuildIssue[]): AutoFixAction[] {
     if (issue.fixable && issue.confidence !== 'low') {
       switch (issue.kind) {
         case 'missing': {
+          if (typeof issue.payload.enableId === 'string') {
+            actions.push({
+              issueId: issue.id,
+              action: 'enable-mod',
+              description: 'Включить выключенную зависимость',
+              payload: { modId: issue.payload.enableId }
+            });
+            continue;
+          }
           const projectId = issue.payload.depProjectId;
           const source = issue.payload.source;
           if (typeof projectId === 'string' && typeof source === 'string') {

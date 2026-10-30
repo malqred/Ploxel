@@ -7,6 +7,7 @@ import { readInstance, readMods, writeMods } from './instances';
 import { downloadFile, sha1File } from './downloader';
 import { catalogProject, catalogVersions } from './catalog';
 import { readJarMetadata } from '../core/jar-meta';
+import { findTwin } from '../core/project-match';
 import type { CatalogVersion, Instance, InstalledMod } from '../../shared/types';
 
 const DIR_BY_KIND: Record<InstalledMod['kind'], string> = {
@@ -141,9 +142,11 @@ export async function installProject(
   const version = opts.versionId ? versions.find((v) => v.id === opts.versionId) : versions[0];
   if (!version) throw new Error('Выбранная версия файла не найдена');
 
+  // Без названия в карточке был бы номер проекта («238222») — берём его из каталога
+  const info = opts.projectName ? null : await catalogProject(source, projectId).catch(() => null);
   const installed = await installVersionFile(instance, source, projectId, kind, version, {
-    name: opts.projectName ?? projectId,
-    icon: opts.projectIcon
+    name: opts.projectName ?? info?.title ?? projectId,
+    icon: opts.projectIcon ?? info?.iconUrl
   });
 
   const dependencies: string[] = [];
@@ -163,6 +166,11 @@ export async function installProject(
           continue;
         }
         const info = await catalogProject(source, dep.projectId).catch(() => null);
+        // Та же библиотека уже стоит из другого каталога — второй файл был бы дубликатом
+        if (info && findTwin({ title: info.title, slug: info.slug, id: dep.projectId, source }, mods)) {
+          skipped.push(dep.projectId);
+          continue;
+        }
         await installVersionFile(instance, source, dep.projectId, kind, pick, { name: info?.title ?? dep.projectId, icon: info?.iconUrl });
         dependencies.push(dep.projectId);
       } catch {
@@ -263,16 +271,24 @@ export async function checkUpdates(instanceId: string): Promise<{ modId: string;
     }
   }
 
-  for (const m of mods.filter((x) => x.source === 'curseforge' && x.projectId)) {
-    try {
-      const { catalogVersions: cv } = await import('./catalog');
-      const list = await cv('curseforge', m.projectId!, instance.gameVersion, m.kind === 'mod' ? instance.loader.kind : undefined);
-      const latest = list[0];
-      if (latest && latest.id !== m.versionId) result.push({ modId: m.id, latest });
-    } catch {
-      /* без ключа или сеть недоступна — пропускаем */
-    }
-  }
+  // CurseForge не умеет проверять пачкой — запросы по модам идут параллельно (по 6), а не по очереди
+  const cfMods = mods.filter((x) => x.source === 'curseforge' && x.projectId);
+  const { catalogVersions: cv } = await import('./catalog');
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(6, cfMods.length) }, async () => {
+      while (next < cfMods.length) {
+        const m = cfMods[next++];
+        try {
+          const list = await cv('curseforge', m.projectId!, instance.gameVersion, m.kind === 'mod' ? instance.loader.kind : undefined);
+          const latest = list[0];
+          if (latest && latest.id !== m.versionId) result.push({ modId: m.id, latest });
+        } catch {
+          /* без ключа или сеть недоступна — пропускаем */
+        }
+      }
+    })
+  );
   return result;
 }
 
@@ -386,9 +402,14 @@ async function identifyOnCurseForge(instanceId: string, rest: InstalledMod[]): P
  * название и иконку.
  * Возвращает число распознанных.
  */
+const IDENTIFY_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function identifyLocalMods(instanceId: string): Promise<number> {
   const mods = scanMods(instanceId);
-  const local = mods.filter((m) => m.source === 'local');
+  // Файлы, которые уже искали недавно и не нашли, не ищем снова при каждом открытии сборки:
+  // это перечитывание сотен мегабайт и запросы к двум каталогам
+  const recently = (m: InstalledMod) => !!m.identifiedAt && Date.now() - Date.parse(m.identifiedAt) < IDENTIFY_RETRY_MS;
+  const local = mods.filter((m) => m.source === 'local' && !recently(m));
   if (!local.length) return 0;
   for (const m of local) {
     if (m.sha1) continue;
@@ -412,6 +433,8 @@ export async function identifyLocalMods(instanceId: string): Promise<number> {
     count++;
   }
   count += await identifyOnCurseForge(instanceId, local.filter((m) => m.source === 'local'));
+  const now = new Date().toISOString();
+  for (const m of local) if (m.source === 'local') m.identifiedAt = now;
   // Сохраняем и нераспознанные: у них появится постоянная запись с sha1
   await persistMods(instanceId, mods);
   return count;
@@ -445,4 +468,76 @@ export function findDuplicates(mods: InstalledMod[]): InstalledMod[][] {
     groups.set(key, [...(groups.get(key) ?? []), m]);
   }
   return [...groups.values()].filter((g) => g.length > 1);
+}
+export interface TransferResult {
+  /** 'copied' — перенесён тот же файл, 'catalog' — поставлена версия под другую сборку */
+  mode: 'copied' | 'catalog';
+  name: string;
+  dependencies: number;
+}
+
+/**
+ * Перенос мода, ресурспака или шейдера в другую сборку. Если сборки
+ * различаются версией игры или загрузчиком и проект известен каталогу,
+ * в новую сборку ставится подходящая версия (с зависимостями), иначе
+ * копируется сам файл. keepCopy = false — из исходной сборки он убирается.
+ */
+export async function transferMod(
+  fromId: string,
+  modId: string,
+  toId: string,
+  opts: { keepCopy?: boolean } = {}
+): Promise<TransferResult> {
+  if (fromId === toId) throw new Error('Выберите другую сборку');
+  const from = readInstance(fromId);
+  const to = readInstance(toId);
+  if (!from || !to) throw new Error('Сборка не найдена');
+  const mod = scanMods(fromId).find((m) => m.id === modId);
+  if (!mod) throw new Error('Файл не найден в сборке');
+  if (mod.kind === 'mod' && to.loader.kind === 'vanilla') {
+    throw new Error('В сборке без загрузчика моды не работают. Выберите сборку с Fabric, Forge, NeoForge или Quilt.');
+  }
+  const targetMods = scanMods(toId);
+  if (
+    targetMods.some(
+      (m) => m.kind === mod.kind && ((mod.projectId && m.projectId === mod.projectId) || m.fileName === mod.fileName)
+    )
+  ) {
+    throw new Error(`«${mod.name}» уже есть в сборке «${to.name}»`);
+  }
+
+  const sameGame =
+    from.gameVersion === to.gameVersion && (mod.kind !== 'mod' || from.loader.kind === to.loader.kind);
+  let result: TransferResult;
+  if (!sameGame && mod.projectId && mod.source !== 'local') {
+    const res = await installProject(to, mod.source, mod.projectId, mod.kind, {
+      projectName: mod.name,
+      projectIcon: mod.iconUrl
+    });
+    if (!mod.enabled) await setModEnabled(toId, res.installed.id, false);
+    result = { mode: 'catalog', name: mod.name, dependencies: res.dependencies.length };
+  } else {
+    const srcDir = contentDir(fromId, mod.kind);
+    const dstDir = contentDir(toId, mod.kind);
+    await fsp.mkdir(dstDir, { recursive: true });
+    const srcName = fs.existsSync(path.join(srcDir, mod.fileName)) ? mod.fileName : `${mod.fileName}.disabled`;
+    if (!fs.existsSync(path.join(srcDir, srcName))) throw new Error('Файл не найден на диске');
+    await fsp.copyFile(path.join(srcDir, srcName), path.join(dstDir, srcName));
+    if (mod.source !== 'local') {
+      const record: InstalledMod = {
+        ...mod,
+        id: crypto.randomUUID(),
+        instanceId: toId,
+        installedAt: new Date().toISOString(),
+        previousVersionFile: undefined,
+        previousVersion: undefined,
+        previousVersionId: undefined,
+        previousSha1: undefined
+      };
+      await persistMods(toId, [...readMods(toId).filter((m) => m.fileName !== mod.fileName), record]);
+    }
+    result = { mode: 'copied', name: mod.name, dependencies: 0 };
+  }
+  if (!opts.keepCopy) await removeMod(fromId, modId);
+  return result;
 }

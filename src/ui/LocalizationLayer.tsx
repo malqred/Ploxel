@@ -1,33 +1,20 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useSettings } from '../state/settings';
 import { createTranslator } from '../i18n/translator';
-import en from '../i18n/locales/en.json';
-import fr from '../i18n/locales/fr.json';
-import es from '../i18n/locales/es.json';
-import de from '../i18n/locales/de.json';
-import it from '../i18n/locales/it.json';
-import pl from '../i18n/locales/pl.json';
-import sv from '../i18n/locales/sv.json';
-import fi from '../i18n/locales/fi.json';
-import uk from '../i18n/locales/uk.json';
-import ko from '../i18n/locales/ko.json';
-import ja from '../i18n/locales/ja.json';
-import zh from '../i18n/locales/zh.json';
+// Словари грузятся по требованию — отдельным файлом только выбранного языка:
+// все 12 сразу (4 МБ) замедляли запуск, а русскому интерфейсу не нужен ни один
+const LOADERS = import.meta.glob<{ default: Record<string, string> }>('../i18n/locales/*.json');
+const cache = new Map<string, Record<string, string>>();
 
-const DICTS: Record<string, Record<string, string>> = {
-  en: en as Record<string, string>,
-  fr: fr as Record<string, string>,
-  es: es as Record<string, string>,
-  de: de as Record<string, string>,
-  it: it as Record<string, string>,
-  pl: pl as Record<string, string>,
-  sv: sv as Record<string, string>,
-  fi: fi as Record<string, string>,
-  uk: uk as Record<string, string>,
-  ko: ko as Record<string, string>,
-  ja: ja as Record<string, string>,
-  zh: zh as Record<string, string>
-};
+async function loadDict(lang: string): Promise<Record<string, string> | null> {
+  const hit = cache.get(lang);
+  if (hit) return hit;
+  const load = LOADERS[`../i18n/locales/${lang}.json`];
+  if (!load) return null;
+  const dict = (await load()).default;
+  cache.set(lang, dict);
+  return dict;
+}
 
 const ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
 const SKIP = '.md, .console__log, .ai-answer, .ai-preview, .msg__bubble, code, pre, .md-inline, [data-i18n-skip]';
@@ -49,13 +36,21 @@ export function LocalizationLayer({ children }: { children: ReactNode }) {
   const observer = useRef<MutationObserver | null>(null);
 
   useEffect(() => {
-    const dict = DICTS[lang];
+    let cancelled = false;
     restore();
-
-    if (lang === 'ru' || !dict) {
-      if (lang === 'ru') document.documentElement.lang = 'ru';
-      return;
+    if (lang === 'ru') {
+      document.documentElement.lang = 'ru';
+      return restore;
     }
+    void loadDict(lang).then((dict) => {
+      if (!cancelled && dict) apply(dict);
+    });
+    return () => {
+      cancelled = true;
+      restore();
+    };
+
+    function apply(dict: Record<string, string>) {
     document.documentElement.lang = lang;
 
     const lookup = createTranslator(dict);
@@ -106,6 +101,10 @@ export function LocalizationLayer({ children }: { children: ReactNode }) {
 
     walk(document.body);
     observer.current = new MutationObserver((mutations) => {
+      // Удалённые со страницы узлы не держим: иначе за долгую сессию память растёт без предела
+      if (saved.current.size > 3000) {
+        for (const node of saved.current.keys()) if (!node.isConnected) saved.current.delete(node);
+      }
       for (const m of mutations) {
         if (m.type === 'childList') {
           for (const node of Array.from(m.addedNodes)) walk(node);
@@ -134,6 +133,7 @@ export function LocalizationLayer({ children }: { children: ReactNode }) {
       attributes: true,
       attributeFilter: ATTRS
     });
+    }
 
     function restore() {
       observer.current?.disconnect();
@@ -147,8 +147,6 @@ export function LocalizationLayer({ children }: { children: ReactNode }) {
       }
       saved.current.clear();
     }
-
-    return restore;
   }, [lang]);
 
   return <>{children}</>;

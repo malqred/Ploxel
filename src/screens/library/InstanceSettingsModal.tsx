@@ -4,6 +4,9 @@ import { api } from '../../api';
 import { useSettings } from '../../state/settings';
 import { Button, IconButton } from '../../ui/Button';
 import { Slider } from '../../ui/Controls';
+import { MemoryBar } from '../../ui/MemoryBar';
+import { MemoryAdviceHint } from './MemoryAdviceHint';
+import type { MemoryAdvice } from '../../../shared/memory-advice';
 import { Modal } from '../../ui/Overlay';
 import { Select, TextField } from '../../ui/TextField';
 import { useToast } from '../../state/toast';
@@ -45,6 +48,7 @@ export function InstanceSettingsModal({
   } | null>(null);
   const [cover, setCover] = useState(instance.coverDataUrl ?? '');
   const [busyJava, setBusyJava] = useState(false);
+  const [advice, setAdvice] = useState<MemoryAdvice | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -74,9 +78,23 @@ export function InstanceSettingsModal({
     })();
   }, [open, instance.gameVersion, instance.loader.kind, instance.loader.version]);
 
+  // Рекомендация по модам сборки — пересчитывается при каждом открытии
+  useEffect(() => {
+    if (!open) return;
+    setAdvice(null);
+    let alive = true;
+    void api
+      .invoke<MemoryAdvice | null>('instances:memoryAdvice', instance.id)
+      .then((a) => alive && setAdvice(a))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [open, instance.id]);
+
   const totalGb = Math.floor((info?.totalMemMb ?? 8192) / 1024);
   const maxGb = Math.max(2, Math.min(32, totalGb - 2));
-  const recommended = Math.min(8, Math.max(2, Math.floor(totalGb / 2)));
+  const recommended = Math.min(maxGb, advice?.gb ?? 4);
 
   const javaOptions = useMemo(() => {
     const list = [{ value: AUTO, label: 'Автоматически (рекомендуется)', hint: java?.recommendedPath ? 'Java найдена' : undefined }];
@@ -193,6 +211,7 @@ export function InstanceSettingsModal({
           <h3 className="settings-section__title">Производительность</h3>
           <div className="field">
             <span className="field__label">{`Память — ${Math.round(memory)} ГБ`}</span>
+            <MemoryBar allocatedGb={Math.round(memory)} />
             <Slider
               value={Math.round(memory)}
               min={1}
@@ -202,10 +221,11 @@ export function InstanceSettingsModal({
               format={(v) => `${v} ГБ`}
               marks={[
                 { value: 1, label: '1 ГБ' },
-                { value: recommended, label: `рекомендуем ${recommended} ГБ` },
+                ...(advice ? [{ value: recommended, label: `рекомендуем ${recommended} ГБ` }] : []),
                 { value: maxGb, label: `${maxGb} ГБ` }
               ]}
             />
+            <MemoryAdviceHint advice={advice} current={memory} onApply={(gb) => setMemory(Math.min(maxGb, gb))} />
           </div>
           <div className="field">
             <span className="field__label">Java</span>

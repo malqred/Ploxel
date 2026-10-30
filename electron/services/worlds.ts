@@ -1,7 +1,8 @@
 import fs from 'node:fs';
+import { openZipLite } from '../core/zip-lite';
+import { zipDirectory } from '../core/zip-write';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import AdmZip from 'adm-zip';
 import { instanceDir, p } from './paths';
 import { listInstances, readInstance } from './instances';
 import { parseNbt, asCompound, asString, asNumber } from '../core/nbt';
@@ -75,48 +76,62 @@ function dirSize(dir: string): number {
 /** Импорт мира из zip. Возвращает имя папки мира. */
 export async function importWorld(instanceId: string, zipFile: string): Promise<WorldInfo> {
   if (!readInstance(instanceId)) throw new Error('Сборка не найдена');
-  const zip = new AdmZip(zipFile);
-  const entries = zip.getEntries().filter((e) => !e.isDirectory);
-  if (!entries.length) throw new Error('Архив пуст');
+  // Записи читаем по одной — мир на гигабайты не загружается в память целиком
+  const zip = openZipLite(zipFile);
+  try {
+    const entries = zip.entries.filter((e) => !e.isDirectory);
+    if (!entries.length) throw new Error('Архив пуст');
 
-  const levelEntry = entries.find((e) => e.entryName === 'level.dat' || e.entryName.endsWith('/level.dat'));
-  if (!levelEntry) throw new Error('В архиве нет level.dat — это не сохранение Minecraft');
+    const levelEntry = entries
+      .filter((e) => e.name === 'level.dat' || e.name.endsWith('/level.dat'))
+      .sort((a, b) => a.name.length - b.name.length)[0];
+    if (!levelEntry) throw new Error('В архиве нет level.dat — это не сохранение Minecraft');
 
-  const rootPrefix = levelEntry.entryName === 'level.dat' ? '' : levelEntry.entryName.slice(0, -'level.dat'.length);
-  let folderName = path.basename(rootPrefix.replace(/\/$/, '')) || 'Импортированный мир';
-  folderName = sanitizeName(folderName);
-  const savesDir = path.join(instanceDir(instanceId), 'saves');
-  await fsp.mkdir(savesDir, { recursive: true });
-  let target = path.join(savesDir, folderName);
-  let counter = 2;
-  while (fs.existsSync(target)) {
-    target = path.join(savesDir, `${folderName} (${counter++})`);
+    const rootPrefix = levelEntry.name === 'level.dat' ? '' : levelEntry.name.slice(0, -'level.dat'.length);
+    // Имя мира: папка внутри архива, иначе имя самого архива («floating island.zip»)
+    const fromZip = path.basename(zipFile).replace(/\.zip$/i, '');
+    let folderName = path.basename(rootPrefix.replace(/\/$/, '')) || fromZip || 'Импортированный мир';
+    folderName = sanitizeName(folderName) || 'Импортированный мир';
+    const savesDir = path.join(instanceDir(instanceId), 'saves');
+    await fsp.mkdir(savesDir, { recursive: true });
+    let target = path.join(savesDir, folderName);
+    let counter = 2;
+    while (fs.existsSync(target)) {
+      target = path.join(savesDir, `${folderName} (${counter++})`);
+    }
+    await fsp.mkdir(target, { recursive: true });
+    const safeRoot = path.resolve(target) + path.sep;
+
+    try {
+      for (const entry of entries) {
+        if (!entry.name.startsWith(rootPrefix)) continue;
+        const rel = entry.name.slice(rootPrefix.length);
+        if (!rel) continue;
+        const dest = path.resolve(target, rel);
+        // С разделителем на конце: иначе «World» пропускал бы запись в соседнюю «World2»
+        if (!dest.startsWith(safeRoot)) throw new Error('Небезопасный путь в архиве');
+        await fsp.mkdir(path.dirname(dest), { recursive: true });
+        await fsp.writeFile(dest, zip.read(entry));
+      }
+    } catch (e) {
+      await fsp.rm(target, { recursive: true, force: true }).catch(() => undefined);
+      throw e;
+    }
+    const info = readWorld(target, instanceId);
+    if (!info) throw new Error('Не удалось прочитать импортированный мир');
+    return info;
+  } finally {
+    zip.close();
   }
-  await fsp.mkdir(target, { recursive: true });
-
-  for (const entry of entries) {
-    if (!entry.entryName.startsWith(rootPrefix)) continue;
-    const rel = entry.entryName.slice(rootPrefix.length);
-    if (!rel) continue;
-    const dest = path.resolve(target, rel);
-    if (!dest.startsWith(path.resolve(target))) throw new Error('Небезопасный путь в архиве');
-    await fsp.mkdir(path.dirname(dest), { recursive: true });
-    await fsp.writeFile(dest, entry.getData());
-  }
-  const info = readWorld(target, instanceId);
-  if (!info) throw new Error('Не удалось прочитать импортированный мир');
-  return info;
 }
 
-/** Экспорт мира в zip (внутри архива — файлы мира в корне). */
+/** Экспорт мира в zip: внутри — папка с именем мира, чтобы при импорте сохранилось название. */
 export async function exportWorld(instanceId: string, folder: string, targetZip: string): Promise<string> {
   const dir = path.resolve(instanceDir(instanceId), 'saves', folder);
-  const savesRoot = path.resolve(instanceDir(instanceId), 'saves');
+  const savesRoot = path.resolve(instanceDir(instanceId), 'saves') + path.sep;
   if (!dir.startsWith(savesRoot) || !fs.existsSync(dir)) throw new Error('Мир не найден');
-  const zip = new AdmZip();
-  zip.addLocalFolder(dir);
-  await fsp.mkdir(path.dirname(targetZip), { recursive: true });
-  zip.writeZip(targetZip);
+  // Файлы сжимаются и пишутся по одному — большой мир не держится в памяти целиком
+  await zipDirectory(dir, targetZip, path.basename(dir));
   return targetZip;
 }
 

@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
+import { ImagePlus, Plus, Trash2, X } from 'lucide-react';
+import { api } from '../../api';
+import { MediaBackground } from '../../ui/BackgroundLayer';
 import { useSettings } from '../../state/settings';
 import { Tabs } from '../../ui/Controls';
 import { useSystemDark, useWindowFocused } from '../../theme/apply';
@@ -164,6 +166,7 @@ export function BackgroundSection() {
   const [c3, setC3] = useState('');
   const [angle, setAngle] = useState(135);
   const [name, setName] = useState('');
+  const { toast } = useToast();
   if (!settings) return null;
   const a = settings.appearance;
   const bg = a.background;
@@ -171,6 +174,14 @@ export function BackgroundSection() {
   const gradient = gradients.find((g) => g.id === bg.gradientId) ?? GRADIENTS[0];
 
   const set = (patch: Partial<typeof bg>) => updateAppearance({ background: { ...bg, ...patch } });
+  const pickMedia = async () => {
+    try {
+      const picked = await api.invoke<{ mediaFile: string; mediaType: 'image' | 'video' } | null>('appearance:pickBackground');
+      if (picked) set({ kind: 'media', mediaFile: picked.mediaFile, mediaType: picked.mediaType });
+    } catch (e) {
+      toast('error', 'Фон не установлен', e instanceof Error ? e.message : String(e));
+    }
+  };
   const pickGradient = (id: string) => updateAppearance({ background: { ...bg, kind: 'gradient', gradientId: id }, gradientId: id });
 
   const addGradient = () => {
@@ -197,19 +208,24 @@ export function BackgroundSection() {
   };
 
   return (
-    <Section title="Фон приложения" hint="Цвет темы, свой цвет, градиент или анимация. Свои картинки не поддерживаются.">
+    <Section title="Фон приложения" hint="Цвет темы, свой цвет, градиент, анимация или своя картинка, GIF или видео.">
       <div className="row wrap" style={{ gap: 8 }}>
         {[
           { id: 'theme', label: 'Как в теме' },
           { id: 'solid', label: 'Цвет' },
           { id: 'gradient', label: 'Градиент' },
-          { id: 'animated', label: 'Анимация' }
+          { id: 'animated', label: 'Анимация' },
+          { id: 'media', label: 'Своя картинка или видео' }
         ].map((k) => (
           <button
             key={k.id}
             className="chip chip--button"
             data-active={bg.kind === k.id ? 'true' : undefined}
-            onClick={() => set({ kind: k.id as typeof bg.kind, animatedId: isAnimationId(bg.animatedId) ? bg.animatedId : 'aurora' })}
+            onClick={() =>
+              k.id === 'media' && !bg.mediaFile
+                ? void pickMedia()
+                : set({ kind: k.id as typeof bg.kind, animatedId: isAnimationId(bg.animatedId) ? bg.animatedId : 'aurora' })
+            }
           >
             {k.label}
           </button>
@@ -274,6 +290,40 @@ export function BackgroundSection() {
               </div>
             </div>
           </Row>
+        </div>
+      )}
+
+      {bg.kind === 'media' && bg.mediaFile && (
+        <div className="bg-subpanel">
+          <div className="row wrap" style={{ gap: 16, alignItems: 'flex-start' }}>
+            <span className="media-preview">
+              <MediaBackground file={bg.mediaFile} type={bg.mediaType ?? 'image'} paused={!focused} />
+            </span>
+            <div className="col" style={{ gap: 10, flex: 1, minWidth: 220 }}>
+              <span className="small muted">
+                {bg.mediaType === 'video'
+                  ? 'Видео играет без звука и по кругу. Когда окно лаунчера не активно, оно ставится на паузу.'
+                  : 'Картинка растягивается на всё окно. GIF проигрывается по кругу.'}
+              </span>
+              <div className="row wrap" style={{ gap: 8 }}>
+                <Button variant="secondary" size="sm" icon={<ImagePlus size={14} />} onClick={() => void pickMedia()}>
+                  Выбрать другой файл
+                </Button>
+              </div>
+              <Row label={`Затемнение — ${Math.round((bg.mediaDim ?? 0.5) * 100)}%`} hint="Подложка цвета темы, чтобы текст читался поверх фона." stack>
+                <div style={{ maxWidth: 360 }}>
+                  <Slider
+                    value={Math.round((bg.mediaDim ?? 0.5) * 100)}
+                    min={0}
+                    max={85}
+                    step={5}
+                    onChange={(v) => set({ mediaDim: v / 100 })}
+                    format={(v) => `${v}%`}
+                  />
+                </div>
+              </Row>
+            </div>
+          </div>
         </div>
       )}
 

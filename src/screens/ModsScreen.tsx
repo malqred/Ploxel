@@ -4,6 +4,7 @@ import { api } from '../api';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/TextField';
 import { ScreenHeader } from '../ui/Common';
+import { useSettings } from '../state/settings';
 import { CatalogBrowser, type ContentType } from './mods/CatalogBrowser';
 import { ProjectPage } from './mods/ProjectPage';
 import { AiSuggestModal } from './mods/AiSuggestModal';
@@ -16,6 +17,7 @@ export function ModsScreen() {
   const [targetId, setTargetId] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
   const [aiOn, setAiOn] = useState(false);
+  const cfOn = !!useSettings().info?.config.curseforgeKey;
   const [openProject, setOpenProject] = useState<{ project: CatalogProject; kind: ContentType} | null>(null);
 
   const initialQuery = useMemo(() => {
@@ -48,7 +50,7 @@ export function ModsScreen() {
       <div className={openProject ? 'hidden' : 'col'} style={{ gap: 16 }}>
         <ScreenHeader
           title="Библиотека"
-          sub="Modrinth: моды, сборки, ресурспаки и шейдеры."
+          sub={cfOn ? 'Modrinth и CurseForge: моды, сборки, ресурспаки и шейдеры.' : 'Modrinth: моды, сборки, ресурспаки и шейдеры.'}
           actions={
             <>
               {aiOn && (

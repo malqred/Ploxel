@@ -1,5 +1,6 @@
 import type { CatalogProject, CatalogSearchQuery, CatalogSearchResult, CatalogVersion, Instance, InstalledMod } from '../../shared/types';
 import { draftBuild, draftImprove, MOD_COUNT, type AiBuildDraft, type ModCountRange } from './ai';
+import { findTwin, projectKey } from '../core/project-match';
 import { getModrinthProjectBriefs, searchModrinth, type ProjectBrief } from './modrinth';
 import { listVersions } from './versions';
 import { catalogVersions } from './catalog';
@@ -47,7 +48,7 @@ const LOADERS = ['fabric', 'quilt', 'forge', 'neoforge'] as const;
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1);
 
-/** Моды с одной задачей: в сборке остаётся первый из названных ИИ (slug Modrinth). */
+/** Моды с одной задачей: в сборке остаётся первый из названных ИИ (slug Modrinth или CurseForge). */
 export const FAMILIES: string[][] = [
   ['jei', 'rei', 'emi'],
   ['xaeros-minimap', 'journeymap', 'voxelmap-updated', 'ftb-chunks-fabric'],
@@ -104,11 +105,18 @@ export function dropDuplicates(items: AiPickItem[]): { items: AiPickItem[]; drop
 
 type Search = (q: CatalogSearchQuery) => Promise<CatalogSearchResult>;
 
+/** Каталоги для ИИ-подбора: Modrinth всегда, CurseForge — если задан ключ. */
+async function defaultSearches(): Promise<Search[]> {
+  const { isCurseForgeAvailable, searchCurseForge } = await import('./curseforge');
+  return isCurseForgeAvailable() ? [searchModrinth, searchCurseForge] : [searchModrinth];
+}
+
 export async function resolveDraft(
   draft: AiBuildDraft,
   fallbackVersion: string,
-  search: Search = searchModrinth
+  search?: Search | Search[]
 ): Promise<AiBuildPick> {
+  const searches = search ? (Array.isArray(search) ? search : [search]) : await defaultSearches();
   const gameVersion = draft.gameVersion && /^\d+(\.\d+)+$|^\d{2}w\d{2}[a-z]$/.test(draft.gameVersion) ? draft.gameVersion : fallbackVersion;
   const loader = (LOADERS as readonly string[]).includes(draft.loader ?? '') ? (draft.loader as AiLoader) : 'fabric';
 
@@ -128,21 +136,27 @@ export async function resolveDraft(
     while (next < wanted.length) {
       const idx = next++;
       const w = wanted[idx];
-      try {
-        const res = await search({
-          source: 'modrinth',
-          projectType: w.kind,
-          query: w.name,
-          gameVersion,
-          loader: w.kind === 'mod' ? loader : undefined,
-          sort: 'relevance',
-          offset: 0,
-          limit: 6
-        });
-        const hit = bestMatch(w.name, res.hits);
-        if (hit) found[idx] = { project: hit, kind: w.kind, reason: w.reason };
-      } catch {
-        /* сеть — пункт просто не попадёт в список */
+      // Сначала Modrinth; если проекта там нет под эту версию — следующий каталог
+      for (const [i, run] of searches.entries()) {
+        try {
+          const res = await run({
+            source: i === 0 ? 'modrinth' : 'curseforge',
+            projectType: w.kind,
+            query: w.name,
+            gameVersion,
+            loader: w.kind === 'mod' ? loader : undefined,
+            sort: 'relevance',
+            offset: 0,
+            limit: 6
+          });
+          const hit = bestMatch(w.name, res.hits);
+          if (hit) {
+            found[idx] = { project: hit, kind: w.kind, reason: w.reason };
+            break;
+          }
+        } catch {
+          /* сеть или каталог недоступен — пробуем следующий */
+        }
       }
     }
   };
@@ -156,8 +170,10 @@ export async function resolveDraft(
       missing.push(wanted[idx].name);
       return;
     }
-    if (seen.has(item.project.id)) return;
+    const key = projectKey(item.project.title);
+    if (seen.has(item.project.id) || seen.has(key)) return;
     seen.add(item.project.id);
+    seen.add(key);
     unique.push(item);
   });
   const { items, dropped } = dropDuplicates(unique);
@@ -186,6 +202,8 @@ export async function pickBuild(input: AiPickInput | string): Promise<AiBuildPic
 
 export interface AssembleItem {
   projectId: string;
+  /** каталог проекта; без поля — Modrinth (старые вызовы) */
+  source?: 'modrinth' | 'curseforge';
   kind: AiPickKind;
   title: string;
   iconUrl?: string;
@@ -259,7 +277,7 @@ export async function startAssemble(spec: AssembleSpec): Promise<Instance> {
   return instance;
 }
 
-async function assemble(instance: Instance, spec: AssembleSpec, improve = false): Promise<AssembleReport> {
+export async function assemble(instance: Instance, spec: AssembleSpec, improve = false): Promise<AssembleReport> {
   const total = spec.items.length;
   const taskId = createTask(improve ? `Улучшение «${instance.name}»` : `Сборка «${instance.name}»`, 'Подбор версий');
   // Что было в сборке до установки: при улучшении эти моды не трогаем никогда
@@ -288,10 +306,11 @@ async function assemble(instance: Instance, spec: AssembleSpec, improve = false)
         const idx = next++;
         const item = spec.items[idx];
         try {
-          const versions = await catalogVersions('modrinth', item.projectId, spec.gameVersion, item.kind === 'mod' ? spec.loader : undefined);
+          const versions = await catalogVersions(item.source ?? 'modrinth', item.projectId, spec.gameVersion, item.kind === 'mod' ? spec.loader : undefined);
           if (versions[0]) resolved[idx] = { item, version: versions[0] };
           else removed.push(`${item.title} — нет версии для ${spec.gameVersion}`);
-        } catch {
+        } catch (e) {
+          console.warn('[ai-build] версии не получены:', item.title, e instanceof Error ? e.message : e);
           failed.push(item.title);
         }
       }
@@ -313,7 +332,7 @@ async function assemble(instance: Instance, spec: AssembleSpec, improve = false)
     const { item, version } = kept[i];
     updateTask(taskId, { done: i, total: kept.length, detail: item.title });
     try {
-      await mods.installProject(instance, 'modrinth', item.projectId, item.kind as InstalledMod['kind'], {
+      await mods.installProject(instance, item.source ?? 'modrinth', item.projectId, item.kind as InstalledMod['kind'], {
         versionId: version.id,
         projectName: item.title,
         projectIcon: item.iconUrl,
@@ -321,7 +340,8 @@ async function assemble(instance: Instance, spec: AssembleSpec, improve = false)
       });
       installed++;
       if (i % 5 === 4) changed();
-    } catch {
+    } catch (e) {
+      console.warn('[ai-build] не установлен:', item.title, e instanceof Error ? e.message : e);
       failed.push(item.title);
     }
   }
@@ -358,7 +378,8 @@ async function assemble(instance: Instance, spec: AssembleSpec, improve = false)
           touched = true;
         } else if (issue.kind === 'missing' && issue.fixable && typeof p.depProjectId === 'string') {
           try {
-            const plan = await buildPlan(instance, 'modrinth', p.depProjectId, p.versionId as string | undefined);
+            const depSource = p.source === 'curseforge' ? 'curseforge' : 'modrinth';
+            const plan = await buildPlan(instance, depSource, p.depProjectId, p.versionId as string | undefined);
             await installPlan(instance, plan, plan.items.filter((x) => x.selected).map((x) => x.key));
             touched = true;
           } catch {
@@ -399,9 +420,15 @@ export async function pickImprove(instanceId: string, text: string): Promise<AiB
   // Уже установленное и моды той же задачи, что у установленных, убираем
   const have = new Set(installed.map((m) => m.projectId).filter(Boolean) as string[]);
   const haveSlugs = new Set(Object.values(briefs).map((b) => b.slug));
+  // Мод мог стоять из CurseForge, а ИИ нашёл его на Modrinth (и наоборот) — сравниваем и по названию
+  const named = installed.map((m) => ({ ...m, name: (m.projectId && briefs[m.projectId]?.title) || m.name }));
   const dropped = [...pick.dropped];
   const items = pick.items.filter((item) => {
     if (have.has(item.project.id)) return false;
+    if (findTwin(item.project, named) || findTwin(item.project, installed)) {
+      dropped.push(`${item.project.title} — уже есть в сборке`);
+      return false;
+    }
     const fam = FAMILIES.find((f) => f.includes(item.project.slug));
     const twin = fam?.find((slug) => slug !== item.project.slug && haveSlugs.has(slug));
     if (twin) {

@@ -5,6 +5,7 @@ import { registerIpc } from './ipc';
 import { forgetStoredCurseForgeKey } from './services/curseforge';
 import { applyWindowChrome } from './services/chrome';
 import { initPaths } from './services/paths';
+import { handleMediaProtocol, registerMediaScheme } from './services/local-media';
 import { launchInstance } from './services/launcher';
 import { loadSettings } from './services/settings';
 import { checkForUpdates } from './services/updater';
@@ -105,9 +106,12 @@ function createWindow() {
   });
 }
 
+registerMediaScheme();
+
 app.whenReady().then(async () => {
   app.setAppUserModelId('com.ploxel.launcher');
   await initPaths();
+  handleMediaProtocol();
   forgetStoredCurseForgeKey();
   registerIpc();
 

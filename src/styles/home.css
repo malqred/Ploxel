@@ -777,3 +777,80 @@ button.mc-news__card:hover {
   flex-direction: column;
   gap: var(--space-3);
 }
+
+/* Дни недели — кнопки: клик показывает время за этот день */
+button.week__day {
+  padding: 4px 2px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+button.week__day:hover:not(:disabled) {
+  background: rgb(var(--line-rgb) / 0.06);
+}
+button.week__day:disabled {
+  cursor: default;
+}
+button.week__day[aria-pressed='true'] {
+  background: var(--accent-soft, rgb(var(--line-rgb) / 0.08));
+}
+button.week__day[aria-pressed='true'] .week__bar span {
+  background: var(--accent);
+}
+button.week__day[aria-pressed='true'] .week__label {
+  color: var(--text);
+  font-weight: 650;
+}
+
+/* Окно аккаунта: вход через Ely.by — под двумя колонками */
+.account-modal__ely {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid rgb(var(--line-rgb) / 0.1);
+}
+.account-modal__ely .account-modal__title + p {
+  margin: 0;
+}
+
+/* Поиск неисправностей: пояснение к вкладке */
+.build-check__hint {
+  margin: 4px 4px 2px;
+  line-height: 1.45;
+}
+
+/* Подсказки под строкой поиска */
+.search-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: -4px;
+}
+.search-suggest__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: rgb(var(--inset-rgb));
+  color: var(--text);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-suggest__chip svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.search-suggest__chip:hover,
+.search-suggest__chip[aria-selected='true'] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}

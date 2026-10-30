@@ -99,14 +99,19 @@ export async function detectJava(force = false): Promise<JavaInstall[]> {
   }
 
   const seen = new Set<string>();
-  const out: JavaInstall[] = [];
-  for (const c of candidates) {
+  const unique = candidates.filter((c) => {
     const key = path.resolve(c.path).toLowerCase();
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return false;
     seen.add(key);
-    const major = await readMajor(c.path);
-    if (major) out.push({ path: c.path, major, source: c.source, label: c.label });
-  }
+    return true;
+  });
+  // «java -version» для всех сразу, а не по очереди
+  const majors = await Promise.all(unique.map((c) => readMajor(c.path)));
+  let out: JavaInstall[] = unique.flatMap((c, i) => (majors[i] ? [{ path: c.path, major: majors[i]!, source: c.source, label: c.label }] : []));
+  // Oracle кладёт в PATH ярлык-переадресатор (…\Oracle\Java\javapath\java.exe) на установленный JDK:
+  // в списке это выглядело как вторая Java той же версии
+  const isShim = (p: string) => /[\\/]oracle[\\/]java[\\/]javapath(_target[^\\/]*)?[\\/]/i.test(p);
+  out = out.filter((j) => !isShim(j.path) || !out.some((o) => o !== j && !isShim(o.path) && o.major === j.major));
   out.sort((a, b) => b.major - a.major);
   detected = out;
   return out;

@@ -11,11 +11,18 @@ const LOADER_CATEGORY: Record<string, string> = {
   quilt: 'quilt'
 };
 
+/** Ответ Modrinth, который повтор не исправит (404 «нет такого проекта», 400 и т.п.). */
+class ModrinthClientError extends Error {}
+
 async function get<T>(url: string, attempts = 5): Promise<T> {
   let last: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
+      const res = await fetch(url, {
+        headers: { 'User-Agent': UA, Accept: 'application/json' },
+        // Зависшее соединение не должно держать запрос бесконечно
+        signal: AbortSignal.timeout(i === 0 ? 15000 : 25000)
+      });
       if (res.status === 429) {
         // Лимит Modrinth — 300 запросов в минуту; ждём, сколько сказал сервер
         const reset = Number(res.headers.get('x-ratelimit-reset'));
@@ -23,9 +30,12 @@ async function get<T>(url: string, attempts = 5): Promise<T> {
         last = new Error('Modrinth: слишком много запросов, попробуйте позже');
         continue;
       }
+      // 4xx не повторяем: раньше каждый «нет такого проекта» (404) стоил 7,5 с пауз
+      if (res.status >= 400 && res.status < 500) throw new ModrinthClientError(`Modrinth: HTTP ${res.status}`);
       if (!res.ok) throw new Error(`Modrinth: HTTP ${res.status}`);
       return (await res.json()) as T;
     } catch (e) {
+      if (e instanceof ModrinthClientError) throw e;
       last = e;
       await new Promise((r) => setTimeout(r, 500 * (i + 1)));
     }
@@ -173,7 +183,8 @@ export async function getModrinthProject(id: string): Promise<CatalogProject | n
     author: p.author,
     categories: p.categories,
     projectType: normalizeType(p.project_type),
-    loaders: p.categories.filter((c) => ['fabric', 'forge', 'neoforge', 'quilt'].includes(c)),
+    // У проекта есть поле loaders; в categories загрузчиков у библиотек часто нет
+    loaders: ((p as { loaders?: string[] }).loaders ?? p.categories).filter((c) => ['fabric', 'forge', 'neoforge', 'quilt'].includes(c)),
     gameVersions: p.versions ?? [],
     updatedAt: p.date_modified,
     url: `https://modrinth.com/${p.project_type}/${p.slug}`,
@@ -198,7 +209,8 @@ export async function checkModrinthUpdates(
   const res = await fetch(`${BASE}/version_files/update`, {
     method: 'POST',
     headers: { 'User-Agent': UA, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000)
   });
   if (!res.ok) throw new Error(`Modrinth: HTTP ${res.status}`);
   const json = (await res.json()) as Record<string, RawVersion>;
@@ -227,7 +239,8 @@ export async function identifyModrinthFiles(hashes: string[]): Promise<Record<st
   const res = await fetch(`${BASE}/version_files`, {
     method: 'POST',
     headers: { 'User-Agent': UA, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hashes, algorithm: 'sha1' })
+    body: JSON.stringify({ hashes, algorithm: 'sha1' }),
+    signal: AbortSignal.timeout(30000)
   });
   if (!res.ok) throw new Error(`Modrinth: HTTP ${res.status}`);
   const versions = (await res.json()) as Record<string, RawVersion>;
@@ -266,6 +279,23 @@ export async function getModrinthVersionsByIds(ids: string[]): Promise<Record<st
 }
 
 /** Поиск версии по SHA1 файла — для экспорта и проверки обновлений. */
+/** Версии по SHA1 одним запросом: хэш → версия Modrinth (то, чего нет в каталоге, не попадает). */
+export async function getModrinthVersionsByHashes(hashes: string[]): Promise<Record<string, CatalogVersion>> {
+  const out: Record<string, CatalogVersion> = {};
+  for (let i = 0; i < hashes.length; i += 500) {
+    const res = await fetch(`${BASE}/version_files`, {
+      method: 'POST',
+      headers: { 'User-Agent': UA, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hashes: hashes.slice(i, i + 500), algorithm: 'sha1' }),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!res.ok) throw new Error(`Modrinth: HTTP ${res.status}`);
+    const found = (await res.json()) as Record<string, RawVersion>;
+    for (const [hash, v] of Object.entries(found)) out[hash] = normalizeVersion(v);
+  }
+  return out;
+}
+
 export async function getModrinthVersionByHash(sha1: string): Promise<CatalogVersion | null> {
   try {
     const v = await get<RawVersion>(`${BASE}/version_file/${sha1}?algorithm=sha1`);

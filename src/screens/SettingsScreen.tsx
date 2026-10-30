@@ -56,6 +56,7 @@ export function SettingsScreen() {
               <button
                 key={t.id}
                 className="settings-nav__item"
+                data-tour={`settings-${t.id}`}
                 aria-current={tab === t.id ? 'true' : undefined}
                 onClick={() => go(t.id)}
               >

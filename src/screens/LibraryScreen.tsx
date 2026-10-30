@@ -126,6 +126,22 @@ export function LibraryScreen() {
     });
   }, [reload]);
 
+  // Ссылка на сборку, пока этот экран уже открыт (уведомление «Сборка готова», переход после
+  // установки модпака): экран не пересоздаётся, поэтому читаем адрес при каждой его смене
+  useEffect(() => {
+    const onHash = () => {
+      const match = window.location.hash.match(/^#\/?library\?(?:.*&)?instance=([^&]+)/);
+      if (!match) return;
+      const id = decodeURIComponent(match[1]);
+      void reload().then((list) => {
+        setSelected(id);
+        if (list.some((i) => i.id === id)) setOpenId(id);
+      });
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [reload]);
+
   const createQuick = async () => {
     if (!gameVersion || busy) return;
     setBusy(true);
@@ -217,6 +233,7 @@ export function LibraryScreen() {
               variant="secondary"
               icon={<FolderPlus size={16} />}
               onClick={() => (window.location.hash = '/import')}
+              data-tour="library-import"
             >
               Импорт
             </Button>

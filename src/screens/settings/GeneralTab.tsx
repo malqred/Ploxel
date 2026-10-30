@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { MemoryBar } from '../../ui/MemoryBar';
 import { FolderCog, RotateCcw } from 'lucide-react';
 import { api } from '../../api';
 import { useSettings } from '../../state/settings';
@@ -19,7 +20,8 @@ export function GeneralTab() {
   const g = settings.general;
   const totalGb = Math.floor(info.totalMemMb / 1024);
   const maxGb = Math.max(2, Math.min(32, totalGb - 2));
-  const recommended = Math.min(8, Math.max(2, Math.floor(totalGb / 2)));
+  // Новая сборка пустая: 4 ГБ хватает и ей, и лёгкому набору модов
+  const recommended = Math.min(maxGb, 4);
 
   const patch = (next: Partial<typeof g>) => update({ general: { ...g, ...next } });
 
@@ -62,7 +64,8 @@ export function GeneralTab() {
       </Section>
 
       <Section title="Память по умолчанию" hint="Применяется к новым сборкам. Для каждой сборки значение можно изменить отдельно.">
-        <Row label={`Выделение ОЗУ — ${g.memoryMb / 1024} ГБ`} hint={`На компьютере ${totalGb} ГБ ОЗУ. Рекомендуем ${recommended} ГБ.`} stack>
+        <MemoryBar allocatedGb={g.memoryMb / 1024} />
+        <Row label={`Выделение ОЗУ — ${g.memoryMb / 1024} ГБ`} hint={`На компьютере ${totalGb} ГБ ОЗУ. Для новых сборок рекомендуем ${recommended} ГБ — у каждой сборки в её настройках будет своя рекомендация по модам.`} stack>
           <Slider
             value={g.memoryMb / 1024}
             min={1}

@@ -10,8 +10,8 @@ export const defaultSettings = (): Settings => ({
   schemaVersion: 2,
   appearance: {
     theme: 'cream',
-    colorMode: 'light',
-    followSystemTheme: false,
+    colorMode: 'system',
+    followSystemTheme: true,
     accentId: 'sage',
     gradientId: 'meadow',
     customAccents: [],

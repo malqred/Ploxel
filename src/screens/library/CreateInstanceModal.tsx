@@ -5,6 +5,7 @@ import { useSettings } from '../../state/settings';
 import { Button } from '../../ui/Button';
 import { Modal } from '../../ui/Overlay';
 import { Toggle, Slider } from '../../ui/Controls';
+import { baseMemoryGb } from '../../../shared/memory-advice';
 import { Select, TextField } from '../../ui/TextField';
 import { useToast } from '../../state/toast';
 import { fmtDate } from '../../i18n';
@@ -288,7 +289,9 @@ export function CreateInstanceModal({
               { value: maxGb, label: `${maxGb} ГБ` }
             ]}
           />
-          <span className="field__hint">{`Всего ОЗУ: ${totalGb} ГБ. Для лёгкой сборки хватит 2–3 ГБ, для крупного модпака — 6–8 ГБ.`}</span>
+          <span className="field__hint">
+            {`Всего ОЗУ: ${totalGb} ГБ. Пустой сборке этой версии хватит ${Math.ceil(baseMemoryGb(gameVersion || '1.21', kind))} ГБ. Когда добавите моды, в настройках сборки появится своя рекомендация — она учитывает, сколько модов и какие.`}
+          </span>
         </div>
 
         <div className="field--full">

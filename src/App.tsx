@@ -189,7 +189,7 @@ export function App() {
   }
 
   const Screen = SCREENS[screen];
-  const isOnline = account?.type === 'microsoft';
+  const isOnline = account?.type === 'microsoft' || account?.type === 'elyby';
   const faceSkin = account?.skinUrl ?? localSkin;
 
   return (

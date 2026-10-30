@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { overallPercent } from '../../shared/progress';
 import { Pause, Play, Settings2, X } from 'lucide-react';
 import { api } from '../api';
 import { Modal } from './Overlay';
@@ -52,18 +53,24 @@ export function DownloadsIndicator() {
   // Общий процент: по байтам, если они известны, иначе среднее по задачам.
   // Пока загрузки идут, процент только растёт — новые подзадачи (Java, ассеты)
   // не отбрасывают его назад.
-  const rawTotal = stats?.bytesTotal
-    ? Math.round((stats.bytesDone / stats.bytesTotal) * 100)
-    : active.length
-      ? Math.round(active.reduce((n, t) => n + percent(t), 0) / active.length)
-      : 0;
-  const peak = useRef(0);
-  if (!active.length) peak.current = 0;
-  else peak.current = Math.max(peak.current, Math.min(100, rawTotal));
-  const total = peak.current;
+  const rawTotal = overallPercent(active);
+  // Процент не откатывается назад, пока идёт тот же набор загрузок; новый набор
+  // (началась другая операция) — считаем заново
+  const peak = useRef({ key: '', value: 0 });
+  const ops = active.filter(isOperation);
+  // Пока идёт операция, файлы внутри неё приходят и уходят — набор задаём по операциям
+  const key = (ops.length ? ops : active).map((t) => t.id).sort().join('|');
+  if (!active.length) peak.current = { key: '', value: 0 };
+  else if (peak.current.key !== key) peak.current = { key, value: rawTotal };
+  else peak.current = { key, value: Math.max(peak.current.value, rawTotal) };
+  const total = peak.current.value;
 
   if (!active.length && !open) return null;
-  const main = active.find((t) => t.status === 'running') ?? active[0];
+  // Главная строка — операция (сборка, модпак, запуск), если она идёт
+  const main =
+    ops[0] ??
+    active.find((t) => t.status === 'running') ??
+    active[0];
   const paused = active.length > 0 && active.every((t) => t.status === 'paused');
 
   return (
@@ -160,4 +167,8 @@ export function DownloadsIndicator() {
       </Modal>
     </>
   );
+}
+/** Операция (сборка, модпак, запуск): счётчик шагов без байтов. */
+function isOperation(t: DownloadTask): boolean {
+  return !t.id.startsWith('batch:') && !t.bytesTotal && t.total > 0;
 }

@@ -59,7 +59,7 @@ export function AiImproveModal({
     if (!selected.length) return;
     setStarting(true);
     try {
-      await api.invoke('ai:improve', instance.id, selected.map((i) => ({ projectId: i.project.id, kind: i.kind, title: i.project.title, iconUrl: i.project.iconUrl })));
+      await api.invoke('ai:improve', instance.id, selected.map((i) => ({ projectId: i.project.id, source: i.project.source, kind: i.kind, title: i.project.title, iconUrl: i.project.iconUrl })));
       toast('info', `Улучшаем «${instance.name}»`, 'Моды устанавливаются в фоне — прогресс в меню слева.');
       setPick(null);
       setText('');

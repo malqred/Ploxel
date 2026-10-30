@@ -21,7 +21,8 @@ const DIRS = [
   'logs',
   'cache',
   'downloads',
-  'backups'
+  'backups',
+  'backgrounds'
 ] as const;
 
 let root = '';

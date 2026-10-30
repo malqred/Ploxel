@@ -415,3 +415,22 @@
   background: rgb(var(--inset-rgb));
   font-size: var(--fs-sm);
 }
+
+/* «О лаунчере»: ссылка на GitHub — справа снизу */
+.about-github {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+}
+
+/* Превью своего фона */
+.media-preview {
+  position: relative;
+  display: block;
+  width: 240px;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: rgb(var(--inset-rgb));
+  box-shadow: var(--inset-shadow);
+}

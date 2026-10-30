@@ -775,3 +775,16 @@ img {
     --sidebar-w: 206px;
   }
 }
+/* Свой фон: картинка, GIF или видео на всё окно */
+.bg-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+/* Подложка темы поверх своего фона — сила задаётся ползунком «Затемнение» */
+.bg-veil[data-media='true'] {
+  background: rgb(var(--bg-rgb) / var(--media-dim, 0.35));
+}

@@ -6,6 +6,7 @@ import { TextField } from '../../ui/TextField';
 import { Modal, ConfirmDialog } from '../../ui/Overlay';
 import { useToast } from '../../state/toast';
 import { Section } from './parts';
+import { ElyLoginForm } from '../../ui/ElyLoginForm';
 import type { Account, AccountView } from '../../../shared/types';
 
 interface DeviceInfo {
@@ -133,7 +134,7 @@ export function AccountsTab() {
               <div className="col grow" style={{ gap: 1 }}>
                 <span style={{ fontWeight: 650 }}>{acc.name}</span>
                 <span className="tiny muted">
-                  {acc.type === 'microsoft' ? 'Microsoft' : 'Офлайн-профиль'} ·{' '}
+                  {acc.type === 'microsoft' ? 'Microsoft' : acc.type === 'elyby' ? 'Ely.by' : 'Офлайн-профиль'} ·{' '}
                   {acc.type === 'offline'
                     ? 'без сессии'
                     : acc.sessionState === 'valid'
@@ -192,6 +193,17 @@ export function AccountsTab() {
           Ник: 3–16 символов, латиница, цифры и «_». Офлайн-скин видят другие игроки только на серверах с
           плагинами/модами синхронизации скинов — правила Mojang это не позволяют обойти на обычных серверах.
         </p>
+      </Section>
+
+      <Section title="Ely.by" hint="Бесплатный аккаунт со своим скином: его видно в игре и на серверах с поддержкой Ely.by.">
+        <div style={{ maxWidth: 420 }}>
+          <ElyLoginForm
+            onDone={async (acc) => {
+              await load();
+              toast('success', 'Вход через Ely.by выполнен', acc.name);
+            }}
+          />
+        </div>
       </Section>
 
       <ConfirmDialog

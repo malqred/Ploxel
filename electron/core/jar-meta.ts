@@ -7,7 +7,9 @@
 // Функция не бросает исключений: на битых архивах возвращает частичные
 // данные и текст ошибки в поле `error`.
 
+import fs from 'node:fs';
 import AdmZip from 'adm-zip';
+import { openZipLite } from './zip-lite';
 import type { JarMetadata } from '../../shared/types';
 
 /** JarMetadata + служебные поля (error, optional, loaderVersion). */
@@ -27,19 +29,72 @@ function emptyResult(file: string): JarReadResult {
   return { file, provides: [], depends: {}, breaks: {}, optional: {}, loaders: [] };
 }
 
-export function readJarMetadata(file: string): JarReadResult {
-  const result = emptyResult(file);
-  let zip: AdmZip;
-  try {
-    zip = new AdmZip(file);
-  } catch (e) {
-    result.error = e instanceof Error ? e.message : 'Не удалось открыть файл';
-    return result;
-  }
+/** Файлы метаданных, которые читает каждый загрузчик (Quilt понимает и Fabric). */
+const SOURCES_FOR: Record<string, string[]> = {
+  fabric: ['fabric.mod.json'],
+  quilt: ['quilt.mod.json', 'fabric.mod.json'],
+  forge: ['meta-inf/mods.toml', 'mcmod.info'],
+  neoforge: ['meta-inf/neoforge.mods.toml', 'meta-inf/mods.toml']
+};
 
+/**
+ * forLoader — загрузчик сборки: если в jar метаданные под несколько
+ * загрузчиков, читаем только «свои» (иначе мод Fabric+Forge в сборке Fabric
+ * «требовал» бы forge и Forge-зависимости).
+ */
+interface ZipEntryLike {
+  isDirectory: boolean;
+  getData(): Buffer;
+}
+
+/** Результаты по файлу (путь + размер + время изменения + загрузчик): повторная проверка сборки не перечитывает jar. */
+const metaCache = new Map<string, JarReadResult>();
+
+export function readJarMetadata(file: string, forLoader?: string): JarReadResult {
+  let key = '';
+  try {
+    const st = fs.statSync(file);
+    key = `${file}|${st.size}|${st.mtimeMs}|${forLoader ?? ''}`;
+  } catch {
+    /* файла нет — прочитаем как есть, ошибка попадёт в result.error */
+  }
+  const hit = key ? metaCache.get(key) : undefined;
+  if (hit) return structuredClone(hit);
+  const result = readJarMetadataUncached(file, forLoader);
+  if (key && !result.error) {
+    if (metaCache.size > 4000) metaCache.clear();
+    metaCache.set(key, structuredClone(result));
+  }
+  return result;
+}
+
+function readJarMetadataUncached(file: string, forLoader?: string): JarReadResult {
+  const result = emptyResult(file);
   // Имена записей сравниваем без учёта регистра.
-  const entries = new Map<string, AdmZip.IZipEntry>();
-  for (const entry of zip.getEntries()) entries.set(entry.entryName.toLowerCase(), entry);
+  const entries = new Map<string, ZipEntryLike>();
+  let close = () => {};
+  try {
+    // Только оглавление и нужные записи — не весь архив в память
+    const lite = openZipLite(file);
+    close = () => lite.close();
+    for (const e of lite.entries) entries.set(e.name.toLowerCase(), { isDirectory: e.isDirectory, getData: () => lite.read(e) });
+  } catch {
+    try {
+      const zip = new AdmZip(file);
+      for (const entry of zip.getEntries()) entries.set(entry.entryName.toLowerCase(), { isDirectory: entry.isDirectory, getData: () => entry.getData() });
+    } catch (e) {
+      result.error = e instanceof Error ? e.message : 'Не удалось открыть файл';
+      return result;
+    }
+  }
+  try {
+    return readEntries(result, entries, forLoader);
+  } finally {
+    close();
+  }
+}
+
+function readEntries(result: JarReadResult, entries: Map<string, ZipEntryLike>, forLoader?: string): JarReadResult {
 
   const readText = (name: string): string | null => {
     const entry = entries.get(name.toLowerCase());
@@ -87,7 +142,10 @@ export function readJarMetadata(file: string): JarReadResult {
   }
 
   // Порядок важен: специфичные форматы раньше общих.
-  for (const source of ['fabric.mod.json', 'quilt.mod.json', 'meta-inf/neoforge.mods.toml', 'meta-inf/mods.toml', 'mcmod.info']) {
+  let sources = ['fabric.mod.json', 'quilt.mod.json', 'meta-inf/neoforge.mods.toml', 'meta-inf/mods.toml', 'mcmod.info'];
+  const own = forLoader ? SOURCES_FOR[forLoader] : undefined;
+  if (own && sources.some((src) => own.includes(src) && entries.has(src))) sources = sources.filter((src) => own.includes(src));
+  for (const source of sources) {
     const raw = readText(source);
     if (raw == null) continue;
     try {
@@ -100,7 +158,11 @@ export function readJarMetadata(file: string): JarReadResult {
 }
 
 function applyMetadata(result: JarReadResult, source: string, raw: string): void {
-  if (source === 'fabric.mod.json' || source === 'quilt.mod.json') {
+  if (source === 'quilt.mod.json') {
+    applyQuilt(result, raw);
+    return;
+  }
+  if (source === 'fabric.mod.json') {
     applyFabricLike(result, raw);
     return;
   }
@@ -132,6 +194,49 @@ function applyFabricLike(result: JarReadResult, raw: string): void {
   if (result.loaders.includes('quilt') && typeof data.quilt_loader === 'string') result.loaderVersion ??= data.quilt_loader;
 }
 
+/**
+ * quilt.mod.json: всё внутри quilt_loader, зависимости — массив строк или
+ * объектов { id, versions, optional }.
+ */
+function applyQuilt(result: JarReadResult, raw: string): void {
+  const data = JSON.parse(raw) as { quilt_loader?: Record<string, unknown> };
+  // Старые quilt.mod.json встречаются и в формате Fabric
+  if (!data.quilt_loader) {
+    applyFabricLike(result, raw);
+    return;
+  }
+  const q = data.quilt_loader;
+  if (typeof q.id === 'string') result.id ??= q.id;
+  if (typeof q.version === 'string') result.version ??= q.version;
+  const meta = q.metadata as { name?: unknown } | undefined;
+  if (meta && typeof meta.name === 'string') result.name ??= meta.name;
+  const list = (value: unknown, cb: (id: string, ranges: string[], optional: boolean) => void) => {
+    if (!Array.isArray(value)) return;
+    for (const item of value) {
+      if (typeof item === 'string') cb(item, ['*'], false);
+      else if (item && typeof item === 'object') {
+        const o = item as { id?: unknown; versions?: unknown; optional?: unknown };
+        if (typeof o.id !== 'string') continue;
+        const v = o.versions;
+        const ranges = typeof v === 'string' ? [v] : Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : ['*'];
+        cb(o.id, ranges.length ? ranges : ['*'], o.optional === true);
+      }
+    }
+  };
+  list(q.depends, (id, ranges, optional) => {
+    // В Quilt мод quilt_loader называется так, а Fabric-моды — fabricloader
+    const key = id === 'quilt_loader' ? 'quilt_loader' : id;
+    if (optional) result.optional[key] = ranges;
+    else result.depends[key] = ranges;
+  });
+  list(q.breaks, (id, ranges) => {
+    result.breaks[id] = ranges;
+  });
+  list(q.provides, (id) => {
+    if (!result.provides.includes(id)) result.provides.push(id);
+  });
+}
+
 /** Значение в fabric.mod.json: строка-диапазон или массив диапазонов. */
 function rangesToMap(value: unknown): Record<string, string[]> {
   const out: Record<string, string[]> = {};
@@ -153,7 +258,7 @@ function rangesToMap(value: unknown): Record<string, string[]> {
  */
 function applyModsToml(result: JarReadResult, raw: string): void {
   interface TomlMod { modId?: string; version?: string; displayName?: string }
-  interface TomlDep { modId: string; mandatory: boolean; versionRange?: string }
+  interface TomlDep { modId: string; mandatory: boolean; versionRange?: string; type?: string; side?: string }
   const mods: TomlMod[] = [];
   const deps: TomlDep[] = [];
   let curMod: TomlMod | null = null;
@@ -184,11 +289,14 @@ function applyModsToml(result: JarReadResult, raw: string): void {
     const eq = trimmed.indexOf('=');
     if (eq < 0) continue;
     const key = unquote(trimmed.slice(0, eq).trim());
-    const value = unquote(trimmed.slice(eq + 1).trim());
+    const value = unquote(stripTomlComment(trimmed.slice(eq + 1).trim()));
 
     if (curDep) {
       if (key === 'modId') curDep.modId = value;
       else if (key === 'mandatory') curDep.mandatory = value === 'true';
+      // NeoForge: type = required | optional | incompatible | discouraged
+      else if (key === 'type') curDep.type = value.toLowerCase();
+      else if (key === 'side') curDep.side = value.toUpperCase();
       else if (key === 'versionRange' || key === 'range') curDep.versionRange = value;
     } else if (curMod) {
       if (key === 'modId') curMod.modId = value;
@@ -205,14 +313,37 @@ function applyModsToml(result: JarReadResult, raw: string): void {
   if (mod?.version) result.version ??= mod.version;
 
   for (const dep of deps) {
-    if (!dep.modId) continue;
-    const ranges = dep.versionRange && dep.versionRange !== '*' ? [dep.versionRange] : ['*'];
-    if (dep.mandatory) {
+    if (!dep.modId || dep.modId.includes('${')) continue;
+    // В Maven-диапазонах Forge версия без скобок («21.1.228», «1.21») — лишь
+    // «рекомендуемая»: подходит любая. Ограничение задают только [ ] и ( )
+    const range = dep.versionRange?.trim();
+    const ranges = range && range !== '*' && /[[(]/.test(range) ? [range] : ['*'];
+    if (dep.type === 'incompatible') {
+      result.breaks[dep.modId] = ranges;
+      continue;
+    }
+    if (dep.type === 'discouraged') continue;
+    // Зависимость только для сервера клиенту не нужна
+    const required = dep.type ? dep.type === 'required' : dep.mandatory;
+    if (required && dep.side !== 'SERVER') {
       result.depends[dep.modId] = [...new Set([...(result.depends[dep.modId] ?? []), ...ranges])];
     } else {
       result.optional[dep.modId] = [...new Set([...(result.optional[dep.modId] ?? []), ...ranges])];
     }
   }
+}
+
+/** Комментарий в конце строки TOML (# вне кавычек). */
+function stripTomlComment(value: string): string {
+  let quote = '';
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    if (quote) {
+      if (c === quote) quote = '';
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === '#') return value.slice(0, i).trim();
+  }
+  return value;
 }
 
 function unquote(value: string): string {

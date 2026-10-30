@@ -23,8 +23,8 @@ function importStep(): OnboardingStep {
   return {
     id: 'import',
     title: 'Перенос сборок',
-    text: 'На этом компьютере найдены другие лаунчеры. Их сборки можно импортировать во вкладке «Сборки» → «Импорт». Старые файлы останутся на месте.',
-    target: '[data-tour="nav-library"]',
+    text: 'На этом компьютере найдены другие лаунчеры. Их сборки можно перенести кнопкой «Импорт» во вкладке «Сборки».',
+    target: '[data-tour="library-import"]',
     route: '/library',
     optional: true
   };
@@ -59,7 +59,7 @@ function basicCore(importAvailable: boolean): OnboardingStep[] {
     {
       id: 'mods',
       title: 'Библиотека модов',
-      text: 'Здесь Modrinth и CurseForge: поиск, фильтры, страницы модов и установка в выбранную сборку.',
+      text: 'Здесь каталог Modrinth: поиск, фильтры, страницы модов и установка в выбранную сборку.',
       target: '[data-tour="nav-mods"]',
       route: '/mods'
     },
@@ -73,8 +73,8 @@ function basicCore(importAvailable: boolean): OnboardingStep[] {
     {
       id: 'appearance',
       title: 'Оформление',
-      text: 'Темы, акценты, шрифты, масштаб и язык — в настройках. Всё применяется сразу.',
-      target: '[data-tour="nav-settings"]',
+      text: 'Во вкладке «Внешний вид» — темы, акценты, фон, шрифты и масштаб. Всё применяется сразу.',
+      target: '[data-tour="settings-appearance"]',
       route: '/settings?tab=appearance'
     }
   ];
@@ -95,7 +95,7 @@ function detailedExtras(importAvailable: boolean): OnboardingStep[] {
       id: 'storage',
       title: 'Куда скачивать',
       text: 'Версии игры, библиотеки, ассеты и Java занимают десятки гигабайт. В Настройки → Загрузки можно выбрать диск или другую папку: лаунчер перенесёт туда существующие сборки и файлы. Удобно, если на диске C мало места.',
-      target: '[data-tour="nav-settings"]',
+      target: '[data-tour="settings-downloads"]',
       route: '/settings?tab=downloads'
     },
     {
@@ -137,7 +137,7 @@ function detailedExtras(importAvailable: boolean): OnboardingStep[] {
       id: 'updates',
       title: 'Обновления и удаление',
       text: 'В Настройки → О лаунчере можно проверить обновления. Там же находится удаление: лаунчер уберёт только эту версию и, если отметить галочку, ваши сборки — остальные файлы останутся.',
-      target: '[data-tour="nav-settings"]',
+      target: '[data-tour="settings-about"]',
       route: '/settings?tab=about'
     },
     ...(importAvailable ? [] : [
@@ -145,7 +145,7 @@ function detailedExtras(importAvailable: boolean): OnboardingStep[] {
         id: 'import-tip',
         title: 'Импорт из других лаунчеров',
         text: 'Если позже захотите перенести сборки, откройте «Сборки» → «Импорт»: лаунчер найдёт .minecraft, Prism, CurseForge и другие установленные лаунчеры.',
-        target: '[data-tour="nav-library"]',
+        target: '[data-tour="library-import"]',
         route: '/library'
       } satisfies OnboardingStep
     ])

@@ -10,7 +10,7 @@ files:
   - package.json
   - '!**/*.map'
 extraResources:
-  - from: config.default.json
+  - from: dist/config/config.json
     to: config.json
 asar: true
 win:
