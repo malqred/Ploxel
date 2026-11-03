@@ -324,3 +324,7 @@ npm run dist   # установщик — появится в dist\installer
 ## Лицензия
 
 [MIT](LICENSE). Ploxel — неофициальный проект, он не связан с Mojang Studios и Microsoft. Minecraft — товарный знак Mojang Synergies AB.
+
+---
+
+<sub>Верификация на LibriumHub: LibVerif_1Ab123Nsx</sub>
