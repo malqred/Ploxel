@@ -1,7 +1,7 @@
 {
   "name": "ploxel-launcher",
   "productName": "Ploxel",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Ploxel — лаунчер Minecraft: Java Edition",
   "author": {
     "name": "Ploxel Team"
@@ -19,7 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dist": "npm run build && electron-builder --win",
-    "screenshot": "npm run build && electron . --screenshot"
+    "screenshot": "npm run build && electron . --screenshot",
+    "icon": "electron scripts/make-icon.cjs"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",

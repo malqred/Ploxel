@@ -21,6 +21,8 @@ export interface LaunchInput {
   extraJvmArgs?: string;
   width?: number;
   height?: number;
+  /** запуск во весь экран (--fullscreen) */
+  fullscreen?: boolean;
   quickPlaySingleplayer?: string;
   quickPlayMultiplayer?: string;
   launcherVersion: string;
@@ -45,7 +47,9 @@ export function buildLaunchPlan(input: LaunchInput): LaunchPlan {
     ...ctx.features,
     is_demo_user: false,
     has_custom_resolution: !!(input.width && input.height),
-    has_quick_plays_support: true,
+    // Файл-журнал быстрого входа (--quickPlayPath) лаунчеру не нужен: без пути игра
+    // получала бы пустой аргумент
+    has_quick_plays_support: false,
     is_quick_play_singleplayer: !!input.quickPlaySingleplayer,
     is_quick_play_multiplayer: !!input.quickPlayMultiplayer
   };
@@ -105,10 +109,18 @@ export function buildLaunchPlan(input: LaunchInput): LaunchPlan {
     game.push(...splitLegacyArguments(version.minecraftArguments, vars));
   }
 
-  if (input.quickPlaySingleplayer) {
+  // Версии до 1.13 (minecraftArguments) и часть загрузчиков не передают размер окна сами
+  if (input.width && input.height && !game.includes('--width')) {
+    game.push('--width', String(input.width), '--height', String(input.height));
+  }
+  if (input.fullscreen && !game.includes('--fullscreen')) game.push('--fullscreen');
+
+  // Версия сама добавляет быстрый вход по правилам is_quick_play_*; для версий
+  // без этих правил добавляем сами — один раз, иначе игра увидела бы два значения
+  if (input.quickPlaySingleplayer && !game.includes('--quickPlaySingleplayer')) {
     game.push('--quickPlaySingleplayer', input.quickPlaySingleplayer);
   }
-  if (input.quickPlayMultiplayer) {
+  if (input.quickPlayMultiplayer && !game.includes('--quickPlayMultiplayer')) {
     game.push('--quickPlayMultiplayer', input.quickPlayMultiplayer);
   }
 

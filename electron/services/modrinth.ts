@@ -8,7 +8,9 @@ const LOADER_CATEGORY: Record<string, string> = {
   fabric: 'fabric',
   forge: 'forge',
   neoforge: 'neoforge',
-  quilt: 'quilt'
+  quilt: 'quilt',
+  // не загрузчик игры: так Modrinth помечает версии-датапаки (zip для папки мира)
+  datapack: 'datapack'
 };
 
 /** Ответ Modrinth, который повтор не исправит (404 «нет такого проекта», 400 и т.п.). */
@@ -65,6 +67,9 @@ function normalizeType(t: string): CatalogProject['projectType'] {
 }
 
 export async function searchModrinth(q: CatalogSearchQuery): Promise<CatalogSearchResult> {
+  // Датапаки на Modrinth — проекты-«моды» с загрузчиком datapack: поиск по типу находит их,
+  // но в ответе тип «mod». Тип берём из запроса, иначе страница открылась бы как мод
+  const typed = (t: string): CatalogProject['projectType'] => (q.projectType === 'datapack' ? 'datapack' : normalizeType(t));
   const facets: string[][] = [[`project_type:${q.projectType}`]];
   if (q.gameVersion) facets.push([`versions:${q.gameVersion}`]);
   if (q.loader && q.projectType === 'mod' && LOADER_CATEGORY[q.loader]) {
@@ -95,7 +100,7 @@ export async function searchModrinth(q: CatalogSearchQuery): Promise<CatalogSear
       downloads: h.downloads,
       author: h.author,
       categories: h.categories,
-      projectType: normalizeType(h.project_type),
+      projectType: typed(h.project_type),
       loaders: h.categories.filter((c) => ['fabric', 'forge', 'neoforge', 'quilt'].includes(c)),
       gameVersions: h.versions,
       updatedAt: h.date_modified,

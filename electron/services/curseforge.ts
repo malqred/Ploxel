@@ -17,13 +17,22 @@ const CLASS_ID: Record<CatalogSearchQuery['projectType'], number> = {
   mod: 6,
   modpack: 4471,
   resourcepack: 12,
-  shader: 6552
+  shader: 6552,
+  datapack: 6945
 };
 
 const LOADER_ID: Record<string, number> = { forge: 1, fabric: 4, quilt: 5, neoforge: 6 };
 const LOADER_BY_ID: Record<number, string> = { 1: 'forge', 4: 'fabric', 5: 'quilt', 6: 'neoforge' };
 const KNOWN_LOADERS = new Set(['forge', 'fabric', 'quilt', 'neoforge']);
-const TYPE_BY_CLASS: Record<number, CatalogProject['projectType']> = { 6: 'mod', 4471: 'modpack', 12: 'resourcepack', 6552: 'shader' };
+const TYPE_BY_CLASS: Record<number, CatalogProject['projectType']> = { 6: 'mod', 4471: 'modpack', 12: 'resourcepack', 6552: 'shader', 6945: 'datapack' };
+/** Раздел сайта CurseForge для ссылки на проект. */
+const SECTION: Record<CatalogProject['projectType'], string> = {
+  mod: 'mc-mods',
+  modpack: 'modpacks',
+  resourcepack: 'texture-packs',
+  shader: 'shaders',
+  datapack: 'data-packs'
+};
 
 /** «1.20.1» — версия игры; «Fabric», «Client», «Java 17» — нет. */
 const isGameVersion = (v: string) => /^\d+\.\d+/.test(v);
@@ -153,7 +162,9 @@ export async function searchCurseForge(q: CatalogSearchQuery): Promise<CatalogSe
     pageSize: String(q.limit)
   });
   if (q.gameVersion) params.set('gameVersion', q.gameVersion);
-  const loaderId = q.loader ? LOADER_ID[q.loader] : undefined;
+  // Загрузчик есть только у модов и модпаков: с фильтром «Fabric» ресурспаки, шейдеры
+  // и датапаки CurseForge не находит вовсе (0 результатов)
+  const loaderId = q.loader && (q.projectType === 'mod' || q.projectType === 'modpack') ? LOADER_ID[q.loader] : undefined;
   if (loaderId) params.set('modLoaderType', String(loaderId));
   if (q.category) {
     const categoryId = await curseForgeCategoryId(q.projectType, q.category).catch(() => undefined);
@@ -182,7 +193,7 @@ function normalizeMod(m: CfMod, fallbackType: CatalogProject['projectType']): Ca
   const indexes = m.latestFilesIndexes ?? [];
   const loaders = [...new Set(indexes.map((i) => (i.modLoader ? LOADER_BY_ID[i.modLoader] : undefined)).filter(Boolean) as string[])];
   const gameVersions = [...new Set(indexes.map((i) => i.gameVersion).filter(isGameVersion))];
-  const section = type === 'modpack' ? 'modpacks' : type === 'resourcepack' ? 'texture-packs' : type === 'shader' ? 'shaders' : 'mc-mods';
+  const section = SECTION[type];
   return {
     source: 'curseforge',
     id: String(m.id),
@@ -395,4 +406,10 @@ export async function getCurseForgeMods(ids: string[]): Promise<CatalogProject[]
   if (!ids.length) return [];
   const json = await post<{ data: CfMod[] }>('/mods', { modIds: ids.map(Number), filterPcOnly: true });
   return json.data.map((m) => normalizeMod(m, 'mod'));
+}
+
+/** Список изменений файла CurseForge (HTML от автора). Пусто — автор не написал. */
+export async function getCurseForgeChangelog(modId: string, fileId: string): Promise<string> {
+  const res = await api<{ data?: string }>(`/mods/${modId}/files/${fileId}/changelog`);
+  return res.data ?? '';
 }

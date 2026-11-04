@@ -8,7 +8,8 @@ import { downloadFile, sha1File } from './downloader';
 import { catalogProject, catalogVersions } from './catalog';
 import { readJarMetadata } from '../core/jar-meta';
 import { findTwin } from '../core/project-match';
-import type { CatalogVersion, Instance, InstalledMod } from '../../shared/types';
+import { htmlToMarkdown } from '../../shared/html-to-markdown';
+import type { ChangelogEntry, CatalogVersion, Instance, InstalledMod } from '../../shared/types';
 
 const DIR_BY_KIND: Record<InstalledMod['kind'], string> = {
   mod: 'mods',
@@ -280,7 +281,7 @@ export async function checkUpdates(instanceId: string): Promise<{ modId: string;
       while (next < cfMods.length) {
         const m = cfMods[next++];
         try {
-          const list = await cv('curseforge', m.projectId!, instance.gameVersion, m.kind === 'mod' ? instance.loader.kind : undefined);
+          const list = await cv('curseforge', m.projectId!, instance.gameVersion, versionLoader(instance, m.kind));
           const latest = list[0];
           if (latest && latest.id !== m.versionId) result.push({ modId: m.id, latest });
         } catch {
@@ -290,6 +291,44 @@ export async function checkUpdates(instanceId: string): Promise<{ modId: string;
     })
   );
   return result;
+}
+
+/** Загрузчик для поиска версий: моду — загрузчик сборки, ресурспакам и шейдерам — никакой. */
+function versionLoader(instance: Instance, kind: InstalledMod['kind']): string | undefined {
+  return kind === 'mod' && instance.loader.kind !== 'vanilla' ? instance.loader.kind : undefined;
+}
+
+/** Сколько версий показывать в «Что нового»: дальше — обычно годы истории */
+const CHANGELOG_LIMIT = 15;
+
+/**
+ * Что изменилось между установленной версией и новой: все версии новее
+ * установленной (под версию игры сборки), новые — первыми.
+ */
+export async function modChangelog(instanceId: string, modId: string): Promise<ChangelogEntry[]> {
+  const instance = readInstance(instanceId);
+  if (!instance) throw new Error('Сборка не найдена');
+  const mod = scanMods(instanceId).find((m) => m.id === modId);
+  if (!mod?.projectId || mod.source === 'local') throw new Error('Нет данных об источнике мода');
+  const versions = await catalogVersions(mod.source, mod.projectId, instance.gameVersion, versionLoader(instance, mod.kind));
+  const installedAt = versions.findIndex(
+    (v) => v.id === mod.versionId || (!!mod.sha1 && v.files.some((f) => f.hashes?.sha1 === mod.sha1))
+  );
+  const installedDate = mod.installedAt ?? '';
+  const newer = (installedAt >= 0 ? versions.slice(0, installedAt) : versions.filter((v) => v.datePublished > installedDate))
+    .slice(0, CHANGELOG_LIMIT);
+  // Modrinth отдаёт изменения вместе с версиями; у CurseForge — отдельный запрос на файл
+  const { getCurseForgeChangelog } = await import('./curseforge');
+  const projectId = mod.projectId;
+  return Promise.all(
+    newer.map(async (v): Promise<ChangelogEntry> => {
+      const text =
+        mod.source === 'curseforge'
+          ? htmlToMarkdown(await getCurseForgeChangelog(projectId, v.id).catch(() => ''))
+          : v.changelog ?? '';
+      return { versionId: v.id, versionNumber: v.versionNumber || v.name, datePublished: v.datePublished, changelog: text.trim() };
+    })
+  );
 }
 
 /**
@@ -304,7 +343,7 @@ export async function updateMod(instanceId: string, modId: string, latest?: Cata
   if (!mod?.projectId || mod.source === 'local') throw new Error('Нет данных об источнике мода');
   const versions = latest
     ? [latest]
-    : await catalogVersions(mod.source, mod.projectId, instance.gameVersion, mod.kind === 'mod' ? instance.loader.kind : undefined);
+    : await catalogVersions(mod.source, mod.projectId, instance.gameVersion, versionLoader(instance, mod.kind));
   const target = versions[0];
   if (!target) throw new Error('Обновлений не найдено');
 

@@ -11,7 +11,8 @@ import { Modal } from '../../ui/Overlay';
 import { Select, TextField } from '../../ui/TextField';
 import { useToast } from '../../state/toast';
 import { javaFits } from '../../../shared/java-fit';
-import type { Instance } from '../../../shared/types';
+import { GameWindowField } from '../../ui/GameWindowField';
+import type { GameWindow, Instance } from '../../../shared/types';
 
 interface JavaInstall {
   path: string;
@@ -39,6 +40,7 @@ export function InstanceSettingsModal({
   const [memory, setMemory] = useState((instance.memoryMb ?? settings?.general.memoryMb ?? 4096) / 1024);
   const [jvm, setJvm] = useState(instance.jvmArgs ?? '');
   const [server, setServer] = useState(instance.serverAddress ?? '');
+  const [gameWindow, setGameWindow] = useState<GameWindow | undefined>(instance.gameWindow);
   const [javaChoice, setJavaChoice] = useState(instance.javaPath ?? AUTO);
   const [java, setJava] = useState<{
     required: number;
@@ -56,6 +58,7 @@ export function InstanceSettingsModal({
     setMemory((instance.memoryMb ?? settings?.general.memoryMb ?? 4096) / 1024);
     setJvm(instance.jvmArgs ?? '');
     setServer(instance.serverAddress ?? '');
+    setGameWindow(instance.gameWindow);
     setJavaChoice(instance.javaPath ?? AUTO);
     setCover(instance.coverDataUrl ?? '');
   }, [instance.id, instance.coverDataUrl, instance.javaPath, open]);
@@ -140,7 +143,8 @@ export function InstanceSettingsModal({
       memoryMb: Math.round(memory) * 1024,
       jvmArgs: jvm,
       javaPath: javaPath || undefined,
-      serverAddress: server.trim() || undefined
+      serverAddress: server.trim() || undefined,
+      gameWindow
     });
     toast('success', 'Настройки сборки сохранены', download ? 'Java скачивается в фоне — прогресс в меню слева.' : undefined);
     onSaved();
@@ -250,6 +254,10 @@ export function InstanceSettingsModal({
             placeholder="play.example.com:25565"
             hint="Minecraft 1.20+ поддерживает быстрое подключение."
           />
+          <div className="field">
+            <span className="field__label">Окно игры</span>
+            <GameWindowField value={gameWindow} onChange={setGameWindow} inheritLabel="Как в настройках лаунчера" align="start" />
+          </div>
         </section>
 
         <div className="row" style={{ gap: 8 }}>

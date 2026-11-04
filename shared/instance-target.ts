@@ -1,4 +1,4 @@
-import type { LoaderKind } from './types';
+import type { CatalogProjectType, LoaderKind } from './types';
 
 /**
  * «Создать новую» на странице проекта: с какой версией игры и загрузчиком
@@ -6,7 +6,7 @@ import type { LoaderKind } from './types';
  * фильтра или из списка загрузчиков самого проекта.
  */
 export interface NewInstanceTargetInput {
-  kind: 'mod' | 'modpack' | 'resourcepack' | 'shader';
+  kind: CatalogProjectType;
   filterVersion: string;
   targetVersion?: string;
   fileGameVersions?: string[];

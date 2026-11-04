@@ -1,5 +1,4 @@
 import { useSettings } from '../../state/settings';
-import { setLanguage } from '../../i18n';
 import { LANGUAGES } from '../../i18n/languages';
 import { Section } from './parts';
 
@@ -10,7 +9,6 @@ export function LanguageTab() {
 
   const choose = async (id: string) => {
     await update({ general: { ...settings.general, language: id } });
-    setLanguage(id);
   };
 
   return (

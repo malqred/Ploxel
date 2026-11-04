@@ -39,10 +39,14 @@ import { InstanceSettingsModal } from './InstanceSettingsModal';
 import { WorldsScreen } from '../WorldsScreen';
 import { TransferModModal } from './TransferModModal';
 import { ScreenshotsTab } from './ScreenshotsTab';
+import { ChangelogModal } from './ChangelogModal';
+import { ConfigsTab } from './ConfigsTab';
 import type { CatalogProject, CatalogVersion, Instance, InstalledMod } from '../../../shared/types';
 
 type Kind = 'mod' | 'resourcepack' | 'shader';
-type Tab = Kind | 'worlds' | 'shots';
+type Tab = Kind | 'worlds' | 'shots' | 'configs';
+/** Вкладки не про моды: у них свой экран без поиска и фильтров модов */
+const OTHER_TABS: Tab[] = ['worlds', 'shots', 'configs'];
 type Filter = 'all' | 'enabled' | 'disabled' | 'updates';
 
 /** Категории модов Modrinth (у ресурспаков и шейдеров свои — для них фильтра нет). */
@@ -101,7 +105,7 @@ export function InstancePage({
   const [items, setItems] = useState<InstalledMod[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState<Tab>('mod');
-  const kind: Kind = tab === 'worlds' || tab === 'shots' ? 'mod' : tab;
+  const kind: Kind = OTHER_TABS.includes(tab) ? 'mod' : (tab as Kind);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [category, setCategory] = useState('');
@@ -109,6 +113,8 @@ export function InstancePage({
   const [aiOn, setAiOn] = useState(false);
   const [improveOpen, setImproveOpen] = useState(false);
   const [updates, setUpdates] = useState<Record<string, CatalogVersion>>({});
+  /** мод, для которого открыто «Что нового» перед обновлением */
+  const [changesFor, setChangesFor] = useState<InstalledMod | null>(null);
   const [checking, setChecking] = useState(false);
   const [updatingAll, setUpdatingAll] = useState(false);
   const [busyId, setBusyId] = useState('');
@@ -426,11 +432,12 @@ export function InstancePage({
               items={[
                 ...KIND_TABS.map((t) => ({ id: t.id as Tab, label: t.label, count: counts[t.id] })),
                 { id: 'worlds' as Tab, label: 'Миры' },
-                { id: 'shots' as Tab, label: 'Снимки' }
+                { id: 'shots' as Tab, label: 'Снимки' },
+                { id: 'configs' as Tab, label: 'Конфиги' }
               ]}
             />
             <div className="grow" />
-            {tab !== 'worlds' && tab !== 'shots' && (
+            {!OTHER_TABS.includes(tab) && (
               <div className="instance-toolbar__actions">
                 {aiOn && instance.loader.kind !== 'vanilla' && (
                   <Button variant="secondary" size="sm" icon={<Wand2 size={15} />} onClick={() => setImproveOpen(true)}>
@@ -458,6 +465,8 @@ export function InstancePage({
             <WorldsScreen instanceId={instance.id} embedded />
           ) : tab === 'shots' ? (
             <ScreenshotsTab instanceId={instance.id} />
+          ) : tab === 'configs' ? (
+            <ConfigsTab instanceId={instance.id} running={running} />
           ) : (
           <>
           <div className="instance-toolbar">
@@ -566,7 +575,7 @@ export function InstancePage({
                     </div>
                     <div className="content-card__foot">
                       {next ? (
-                        <Button size="sm" variant="purple" loading={busy} icon={<Download size={13} />} onClick={() => update(mod)}>{`Обновить до ${next.versionNumber}`}</Button>
+                        <Button size="sm" variant="purple" loading={busy} icon={<Download size={13} />} onClick={() => setChangesFor(mod)}>{`Обновить до ${next.versionNumber}`}</Button>
                       ) : (
                         canOpen && (
                           <Button size="sm" variant="ghost" icon={<ExternalLink size={13} />} onClick={() => openProject(mod)}>
@@ -692,6 +701,19 @@ export function InstancePage({
         onChanged={() => {
           void reload();
           onChanged();
+        }}
+      />
+
+      <ChangelogModal
+        instanceId={instance.id}
+        mod={changesFor}
+        next={changesFor ? updates[changesFor.id] : undefined}
+        busy={!!changesFor && busyId === changesFor.id}
+        onClose={() => setChangesFor(null)}
+        onUpdate={async (mod) => {
+          await update(mod);
+          setChangesFor(null);
+          await reload();
         }}
       />
 

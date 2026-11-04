@@ -145,3 +145,12 @@
   font-size: var(--fs-xs);
   color: var(--text-muted);
 }
+/* Ссылка на загруженный лог */
+.share-link {
+  padding: var(--space-3);
+  border-radius: var(--r-md);
+  background: rgb(var(--inset-rgb));
+  font-family: var(--font-mono);
+  user-select: text;
+  word-break: break-all;
+}

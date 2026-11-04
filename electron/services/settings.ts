@@ -38,7 +38,9 @@ export const defaultSettings = (): Settings => ({
     autoUpdateLauncher: true,
     confirmDeleteInstance: true,
     defaultInstanceId: null,
-    onboardingDone: false
+    onboardingDone: false,
+    gameWindow: { width: 0, height: 0, fullscreen: false },
+    discordPresence: true
   },
   java: { customJavaPath: '', jvmArgs: '-XX:+UseG1GC', autoDownloadJava: true },
   ai: { provider: 'none', baseUrl: '', model: '', apiKey: '', rememberKey: false, translateEmail: '' },

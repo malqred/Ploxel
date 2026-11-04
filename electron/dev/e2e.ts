@@ -54,6 +54,12 @@ export async function runE2E(command: string, arg: (name: string) => string | un
     return;
   }
 
+  if (command === 'v121') {
+    const { runV121E2E } = await import('./e2e-v121');
+    await runV121E2E();
+    return;
+  }
+
   if (command === 'curseforge') {
     const { runCurseForgeE2E } = await import('./e2e-curseforge');
     await runCurseForgeE2E(arg);

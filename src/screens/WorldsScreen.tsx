@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, FolderOpen, Globe2, Play, Upload } from 'lucide-react';
+import { AlertTriangle, FolderOpen, Globe2, PackageOpen, Play, Upload } from 'lucide-react';
 import { api } from '../api';
 import { Button, IconButton } from '../ui/Button';
 import { Select } from '../ui/TextField';
 import { ScreenHeader, EmptyState } from '../ui/Common';
 import { useToast } from '../state/toast';
 import { fmtBytes, fmtRelative } from '../i18n';
+import { DatapacksModal } from './library/DatapacksModal';
 import type { Instance, WorldInfo } from '../../shared/types';
 
 /** Миры: отдельным экраном или вкладкой на странице сборки (instanceId + embedded). */
@@ -14,6 +15,7 @@ export function WorldsScreen({ instanceId, embedded }: { instanceId?: string; em
   const [instances, setInstances] = useState<Instance[]>([]);
   const [filter, setFilter] = useState(instanceId ?? 'all');
   const [loading, setLoading] = useState(true);
+  const [packsOf, setPacksOf] = useState<WorldInfo | null>(null);
   const { toast } = useToast();
 
   const reload = useCallback(async () => {
@@ -151,6 +153,9 @@ export function WorldsScreen({ instanceId, embedded }: { instanceId?: string; em
                     Играть
                   </Button>
                   <span className="grow" />
+                  <IconButton label="Датапаки мира" size="sm" ghost onClick={() => setPacksOf(world)}>
+                    <PackageOpen size={15} />
+                  </IconButton>
                   <IconButton label="Открыть папку мира" size="sm" ghost onClick={() => api.invoke('worlds:open', world.instanceId, world.folder)}>
                     <FolderOpen size={15} />
                   </IconButton>
@@ -163,6 +168,7 @@ export function WorldsScreen({ instanceId, embedded }: { instanceId?: string; em
           })}
         </div>
       )}
+      <DatapacksModal world={packsOf} onClose={() => setPacksOf(null)} />
     </div>
   );
 }

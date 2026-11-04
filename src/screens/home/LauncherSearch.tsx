@@ -28,7 +28,12 @@ import {
   Terminal,
   Trash2,
   UserRound,
-  WifiOff
+  WifiOff,
+  PackageOpen,
+  FileCog,
+  Link2,
+  MessageCircle,
+  Monitor
 } from 'lucide-react';
 import { api } from '../../api';
 import { EmptyState } from '../../ui/Common';
@@ -62,7 +67,12 @@ const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
   image: ImageIcon,
   camera: Camera,
   clock: Clock,
-  arrows: ArrowLeftRight
+  arrows: ArrowLeftRight,
+  'package-open': PackageOpen,
+  'file-cog': FileCog,
+  link: Link2,
+  discord: MessageCircle,
+  monitor: Monitor
 };
 
 const SUGGEST_ICON: Record<string, React.ReactNode> = {

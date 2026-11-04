@@ -9,6 +9,7 @@ import { Slider } from '../../ui/Controls';
 import { Select } from '../../ui/TextField';
 import { ConfirmDialog } from '../../ui/Overlay';
 import { useToast } from '../../state/toast';
+import { GameWindowField } from '../../ui/GameWindowField';
 import { Row, Section } from './parts';
 
 export function GeneralTab() {
@@ -93,6 +94,23 @@ export function GeneralTab() {
             ]}
             onChange={(v) => patch({ closeLauncherOnGameStart: v as typeof g.closeLauncherOnGameStart })}
             width={220}
+          />
+        </Row>
+        <Row label="Окно игры" hint="Размер окна Minecraft для сборок, где не задан свой. «Как решит игра» — обычное окно 854 × 480 или размер из настроек игры.">
+          <GameWindowField value={g.gameWindow} onChange={(v) => v && patch({ gameWindow: v })} />
+        </Row>
+        <Row
+          label="Статус в Discord"
+          hint={
+            info?.config.discordClientId
+              ? 'Пока вы играете, в профиле Discord видно: «Играет в Ploxel», название сборки и версия игры. Discord должен быть запущен на этом компьютере.'
+              : 'Недоступно: в config.json не задан discordClientId — ID приложения Discord.'
+          }
+        >
+          <Toggle
+            checked={g.discordPresence && !!info?.config.discordClientId}
+            disabled={!info?.config.discordClientId}
+            onChange={(v) => patch({ discordPresence: v })}
           />
         </Row>
         <Row label="Помощник при сборке" hint="Автоматически докачивать обязательные зависимости модов и предупреждать о дубликатах.">

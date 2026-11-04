@@ -17,10 +17,13 @@ import { buildCommand, buildLaunchPlan } from '../core/version/launch';
 import { compareVersions } from '../core/version-compare';
 import { appendLog, startNewSessionLog } from './logs';
 import { createTask, finishTask, updateTask } from './downloader';
+import { launchPercent } from '../../shared/progress';
 import { emit } from './events';
-import type { Instance, LogLine } from '../../shared/types';
+import type { GameWindow, Instance, LogLine } from '../../shared/types';
 
 const running = new Map<string, ChildProcess>();
+/** Сборки, которые остановил сам пользователь: ненулевой код выхода — не падение */
+const stoppedByUser = new Set<string>();
 const controllers = new Map<string, AbortController>();
 let currentLaunchInstance: string | null = null;
 
@@ -63,6 +66,13 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
   controllers.set(taskId, controller);
   startNewSessionLog(instanceId);
   const log = (text: string, stream: LogLine['stream'] = 'launcher') => appendLog(instanceId, text, stream);
+  // Один процент на весь запуск: у каждого этапа (Java, библиотеки, ассеты) свой счётчик с нуля
+  const progress = (phase: string, done = 0, total = 0) =>
+    updateTask(taskId, {
+      detail: total > 1 ? `${phase}: ${done} из ${total}` : phase,
+      done: launchPercent(phase, done, total),
+      total: 100
+    });
 
   try {
     const token = await getMinecraftToken(account.id);
@@ -88,14 +98,14 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
       }
       const java = await ensureJava(json, {
         allowDownload: settings.java.autoDownloadJava,
-        onProgress: (done, total) => updateTask(taskId, { detail: 'Загрузка Java', done, total })
+        onProgress: (done, total) => progress('Загрузка Java', done, total)
       });
       javaPath = java.java.path;
       log(`Java ${java.java.major}: ${javaPath}`);
     }
 
     // Файлы игры + ассеты
-    updateTask(taskId, { detail: 'Проверка файлов игры', done: 0, total: 0 });
+    progress('Проверка файлов игры');
     const install = await ensureVersion(versionId, {
       ctx: {
         os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux',
@@ -103,13 +113,13 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
         features: {}
       },
       signal: controller.signal,
-      onProgress: (done, total, phase) => updateTask(taskId, { detail: phase, done, total })
+      onProgress: (done, total, phase) => progress(phase, done, total)
     });
 
     // Ely.by: authlib-injector направляет вход и скины игры на Ely.by
     let elyAgent: string | null = null;
     if (account.type === 'elyby') {
-      updateTask(taskId, { detail: 'Подготовка Ely.by' });
+      progress('Подготовка Ely.by');
       elyAgent = await ensureAuthlibInjector((line) => log(line));
     }
 
@@ -144,12 +154,13 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
       isOffline: account.type === 'offline',
       logConfigPath: install.logConfig,
       quickPlayMultiplayer: quickServer,
-      quickPlaySingleplayer: quickWorld
+      quickPlaySingleplayer: quickWorld,
+      ...windowArgs(instance.gameWindow ?? settings.general.gameWindow)
     });
 
     const command = buildCommand(javaPath, plan);
     log(`Запуск: ${javaPath} ${plan.jvm.join(' ')} ${plan.mainClass}`);
-    updateTask(taskId, { done: 1, total: 1, detail: 'Запуск игры' });
+    progress('Запуск игры');
 
     const child = spawn(command[0], command.slice(1), {
       cwd: gameDir,
@@ -157,6 +168,7 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
       env: { ...process.env }
     });
     running.set(instanceId, child);
+    stoppedByUser.delete(instanceId);
     currentLaunchInstance = instanceId;
     emit('game:started', { instanceId, pid: child.pid });
     await updateInstance(instanceId, { lastPlayedAt: new Date().toISOString() });
@@ -193,7 +205,9 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
       setTimeout(() => shots.stop(), 1500);
       running.delete(instanceId);
       if (currentLaunchInstance === instanceId) currentLaunchInstance = null;
-      const crashed = code !== 0 && code !== null;
+      // taskkill /F завершает игру с кодом 1 — это остановка, а не падение
+      const crashed = code !== 0 && code !== null && !stoppedByUser.has(instanceId);
+      stoppedByUser.delete(instanceId);
       appendLog(instanceId, `Игра завершилась (код ${code ?? 'н/д'})`, 'launcher');
       emit('game:exited', { instanceId, code, crashed });
       const current = readInstance(instanceId);
@@ -222,6 +236,13 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
   }
 }
 
+/** Окно игры: размер (0 — решает игра) или весь экран. */
+function windowArgs(win: GameWindow | undefined): { width?: number; height?: number; fullscreen?: boolean } {
+  if (!win) return {};
+  if (win.fullscreen) return { fullscreen: true };
+  return win.width > 0 && win.height > 0 ? { width: Math.round(win.width), height: Math.round(win.height) } : {};
+}
+
 function applyWindowBehavior(behavior: 'keep' | 'minimize' | 'close') {
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) return;
@@ -232,6 +253,7 @@ function applyWindowBehavior(behavior: 'keep' | 'minimize' | 'close') {
 export async function stopInstance(instanceId: string): Promise<void> {
   const child = running.get(instanceId);
   if (!child?.pid) return;
+  stoppedByUser.add(instanceId);
   if (process.platform === 'win32') {
     spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
   } else {

@@ -127,18 +127,18 @@ export async function importWorld(instanceId: string, zipFile: string): Promise<
 
 /** Экспорт мира в zip: внутри — папка с именем мира, чтобы при импорте сохранилось название. */
 export async function exportWorld(instanceId: string, folder: string, targetZip: string): Promise<string> {
-  const dir = path.resolve(instanceDir(instanceId), 'saves', folder);
-  const savesRoot = path.resolve(instanceDir(instanceId), 'saves') + path.sep;
-  if (!dir.startsWith(savesRoot) || !fs.existsSync(dir)) throw new Error('Мир не найден');
+  const dir = worldFolder(instanceId, folder);
+  if (!fs.existsSync(dir)) throw new Error('Мир не найден');
   // Файлы сжимаются и пишутся по одному — большой мир не держится в памяти целиком
   await zipDirectory(dir, targetZip, path.basename(dir));
   return targetZip;
 }
 
+/** Папка мира внутри saves сборки. Путь вне saves (в том числе «saves2», «..») — ошибка. */
 export function worldFolder(instanceId: string, folder: string): string {
-  const dir = path.resolve(instanceDir(instanceId), 'saves', folder);
   const savesRoot = path.resolve(instanceDir(instanceId), 'saves');
-  if (!dir.startsWith(savesRoot)) throw new Error('Неверный путь мира');
+  const dir = path.resolve(savesRoot, folder);
+  if (!folder || !dir.startsWith(savesRoot + path.sep)) throw new Error('Неверный путь мира');
   return dir;
 }
 

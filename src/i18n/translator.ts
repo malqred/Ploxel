@@ -37,14 +37,17 @@ export function createTranslator(dict: Record<string, string>): Lookup {
   };
   // Ключи с местами для вставок: «Обновлено: {0}» → регулярное выражение.
   // Якорь — самый длинный кусок текста шаблона: по нему быстро отсекаем лишние.
-  const patterns: { re: RegExp; anchor: string; value: string }[] = [];
+  // Вставка в «ёлочках» — название (мира, сборки, мода): его не переводим и
+  // переносим как есть, даже если оно по-русски («Тестовый мир»).
+  const patterns: { re: RegExp; anchor: string; value: string; names: Set<string> }[] = [];
   for (const [key, value] of Object.entries(dict)) {
     if (!/\{\d\}/.test(key) || value === key) continue;
     const pieces = key.split(/\{\d\}/);
     const anchor = pieces.reduce((a, b) => (b.length > a.length ? b : a), '');
     if (anchor.trim().length < 2) continue;
     const source = key.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\\?\{(\d)\\?\}/g, '(?<g$1>[\\s\\S]+?)');
-    patterns.push({ re: new RegExp(`^${source}$`), anchor, value });
+    const names = new Set([...key.matchAll(/«\{(\d)\}»/g)].map((m) => `g${m[1]}`));
+    patterns.push({ re: new RegExp(`^${source}$`), anchor, value, names });
   }
   patterns.sort((a, b) => b.anchor.length - a.anchor.length);
 
@@ -71,8 +74,9 @@ export function createTranslator(dict: Record<string, string>): Lookup {
       const parts: Record<string, string> = {};
       for (const [name, part] of Object.entries(m.groups)) {
         const tr = translatePart(part ?? '');
-        if (tr === null) continue next;
-        parts[name] = tr;
+        if (tr !== null) parts[name] = tr;
+        else if (p.names.has(name) && !/[«»]/.test(part ?? '')) parts[name] = part ?? '';
+        else continue next;
       }
       return p.value.replace(/\{(\d)\}/g, (_, i: string) => parts[`g${i}`] ?? '');
     }

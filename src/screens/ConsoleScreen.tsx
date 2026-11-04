@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fmtTime } from '../i18n';
-import { AlertTriangle, ArrowDown, Bot, Download, Eraser, Play, Search, Square, Terminal } from 'lucide-react';
+import { AlertTriangle, ArrowDown, Bot, Copy, Download, Eraser, ExternalLink, Link2, Play, Search, Square, Terminal, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { Button, IconButton } from '../ui/Button';
 import { Select, TextField } from '../ui/TextField';
@@ -9,7 +9,7 @@ import { Modal } from '../ui/Overlay';
 import { ScreenHeader } from '../ui/Common';
 import { CrashDialog } from '../ui/CrashDialog';
 import { useToast } from '../state/toast';
-import type { Account, Instance, LogLine } from '../../shared/types';
+import type { Account, Instance, LogLine, SharedLog } from '../../shared/types';
 
 type LevelFilter = 'all' | 'error' | 'warn';
 
@@ -41,6 +41,7 @@ export function ConsoleScreen() {
   const [thinking, setThinking] = useState(false);
   const [aiOn, setAiOn] = useState(false);
   const [nick, setNick] = useState<string | undefined>();
+  const [share, setShare] = useState<{ text: string; busy: boolean; uploaded?: SharedLog } | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -141,6 +142,40 @@ export function ConsoleScreen() {
     }
   };
 
+  // Поделиться логом: сначала показываем очищенный текст, по кнопке он уходит на mclo.gs
+  const openShare = async () => {
+    const text = await api.invoke<string>('logs:sharePreview', rawText(), nick);
+    setShare({ text, busy: false });
+  };
+
+  const uploadShare = async () => {
+    if (!share) return;
+    setShare({ ...share, busy: true });
+    try {
+      const uploaded = await api.invoke<SharedLog>('logs:share', share.text);
+      await navigator.clipboard.writeText(uploaded.url).catch(() => undefined);
+      setShare({ ...share, uploaded, busy: false });
+      toast('success', 'Ссылка на лог скопирована', uploaded.url);
+    } catch (e) {
+      setShare({ ...share, busy: false });
+      toast('error', 'Не удалось загрузить лог', e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const deleteShare = async () => {
+    const uploaded = share?.uploaded;
+    if (!uploaded?.token) return;
+    setShare({ ...share!, busy: true });
+    try {
+      await api.invoke('logs:shareDelete', uploaded.id, uploaded.token);
+      setShare(null);
+      toast('success', 'Лог удалён с mclo.gs', 'Ссылка больше не открывается.');
+    } catch (e) {
+      setShare({ ...share!, busy: false });
+      toast('error', 'Не удалось удалить лог', e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const exportLog = async () => {
     const target = await api.dialog.save('Сохранить лог', `${instanceId}-log.txt`, [
       { name: 'Текст', extensions: ['txt', 'log'] }
@@ -174,6 +209,9 @@ export function ConsoleScreen() {
             />
             <Button variant="secondary" icon={<Download size={15} />} onClick={exportLog} disabled={!lines.length}>
               Выгрузить
+            </Button>
+            <Button variant="secondary" icon={<Link2 size={15} />} onClick={openShare} disabled={!lines.length}>
+              Поделиться
             </Button>
             <Button icon={<Bot size={16} />} onClick={explain} disabled={!lines.length}>
               Объяснить ошибку
@@ -290,6 +328,63 @@ export function ConsoleScreen() {
         exitCode={crashCode}
         onClose={() => setCrashOpen(false)}
       />
+
+      <Modal
+        open={!!share}
+        onClose={() => setShare(null)}
+        title="Поделиться логом"
+        wide
+        actions={
+          share?.uploaded ? (
+            <>
+              {share.uploaded.token && (
+                <Button variant="danger" icon={<Trash2 size={15} />} onClick={deleteShare} loading={share.busy}>
+                  Удалить с mclo.gs
+                </Button>
+              )}
+              <div className="grow" />
+              <Button variant="secondary" icon={<Copy size={15} />} onClick={() => void navigator.clipboard.writeText(share.uploaded!.url)}>
+                Копировать ссылку
+              </Button>
+              <Button icon={<ExternalLink size={15} />} onClick={() => api.shell.openExternal(share.uploaded!.url)}>
+                Открыть
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setShare(null)} disabled={share?.busy}>
+                Отмена
+              </Button>
+              <Button onClick={uploadShare} loading={share?.busy}>
+                Загрузить и получить ссылку
+              </Button>
+            </>
+          )
+        }
+      >
+        {share?.uploaded ? (
+          <>
+            <p>Ссылка скопирована. Отправьте её тому, кто помогает разобраться с ошибкой.</p>
+            <div className="share-link" data-i18n-skip>
+              {share.uploaded.url}
+            </div>
+            <p className="small muted">
+              Лог доступен всем, у кого есть ссылка. mclo.gs удаляет его через 90 дней без просмотров, а удалить сразу можно
+              кнопкой ниже — только пока это окно открыто.
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              Лог загрузится на mclo.gs — сервис для логов Minecraft — и вы получите ссылку. Ник, папка пользователя, токены, IP
+              и UUID уже заменены на метки. Проверьте текст ниже: уйдёт ровно он.
+            </p>
+            <div className="ai-preview" data-i18n-skip>
+              {share?.text}
+            </div>
+          </>
+        )}
+      </Modal>
 
       <Modal
         open={explainOpen}

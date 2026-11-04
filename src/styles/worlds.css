@@ -81,3 +81,38 @@
   color: color-mix(in srgb, var(--warning) 80%, var(--text));
   line-height: 1.4;
 }
+/* Датапаки мира */
+.datapack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 55vh;
+  overflow: auto;
+}
+.datapack-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: rgb(var(--inset-rgb));
+}
+.datapack-row.is-off {
+  opacity: 0.6;
+}
+.datapack-row__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.datapack-row__icon--empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  background: rgb(var(--panel-rgb));
+}
+.datapack-row__name {
+  font-weight: 600;
+}

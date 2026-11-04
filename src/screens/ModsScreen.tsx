@@ -11,6 +11,7 @@ import { AiSuggestModal } from './mods/AiSuggestModal';
 import type { CatalogProject, Instance } from '../../shared/types';
 
 const BROWSE = '__browse__';
+const TYPES: ContentType[] = ['mod', 'modpack', 'resourcepack', 'shader', 'datapack'];
 
 export function ModsScreen() {
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -20,9 +21,15 @@ export function ModsScreen() {
   const cfOn = !!useSettings().info?.config.curseforgeKey;
   const [openProject, setOpenProject] = useState<{ project: CatalogProject; kind: ContentType} | null>(null);
 
-  const initialQuery = useMemo(() => {
+  // Ссылка вида /mods?instance=…&type=datapack&world=… открывает нужный раздел сразу
+  const link = useMemo(() => {
     const params = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
-    return params.get('q') ?? '';
+    const type = params.get('type');
+    return {
+      query: params.get('q') ?? '',
+      type: (type && TYPES.includes(type as ContentType) ? type : 'mod') as ContentType,
+      world: params.get('world') ?? undefined
+    };
   }, []);
 
   useEffect(() => {
@@ -43,6 +50,8 @@ export function ModsScreen() {
   );
 
   const isBrowse = targetId === BROWSE;
+  // Мир из ссылки относится только к той сборке, из которой пришли
+  const linkInstance = useMemo(() => decodeURIComponent(window.location.hash.match(/instance=([^&]+)/)?.[1] ?? ''), []);
   const instance = instances.find((i) => i.id === targetId) ?? null;
 
   return (
@@ -50,7 +59,11 @@ export function ModsScreen() {
       <div className={openProject ? 'hidden' : 'col'} style={{ gap: 16 }}>
         <ScreenHeader
           title="Библиотека"
-          sub={cfOn ? 'Modrinth и CurseForge: моды, сборки, ресурспаки и шейдеры.' : 'Modrinth: моды, сборки, ресурспаки и шейдеры.'}
+          sub={
+            cfOn
+              ? 'Modrinth и CurseForge: моды, сборки, ресурспаки, шейдеры и датапаки.'
+              : 'Modrinth: моды, сборки, ресурспаки, шейдеры и датапаки.'
+          }
           actions={
             <>
               {aiOn && (
@@ -77,7 +90,9 @@ export function ModsScreen() {
           instances={instances}
           mode={isBrowse ? 'browse' : 'instance'}
           instance={isBrowse ? null : instance}
-          initialQuery={initialQuery}
+          initialQuery={link.query}
+          initialType={link.type}
+          world={instance && instance.id === linkInstance ? link.world : undefined}
           onOpenProject={(project, kind) => setOpenProject({ project, kind })}
         />
       </div>
@@ -88,6 +103,7 @@ export function ModsScreen() {
           kind={openProject.kind}
           instance={isBrowse ? null : instance}
           instances={instances}
+          world={instance && instance.id === linkInstance ? link.world : undefined}
           onBack={() => setOpenProject(null)}
           onInstalled={() => undefined}
           onInstanceCreated={addInstance}

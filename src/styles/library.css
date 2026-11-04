@@ -671,3 +671,118 @@
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
 }
+
+/* «Что нового» перед обновлением мода */
+.changelog-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 55vh;
+  overflow: auto;
+}
+.changelog-entry {
+  padding: var(--space-3);
+  border-radius: var(--r-md);
+  background: rgb(var(--inset-rgb));
+}
+.changelog-entry__head {
+  gap: var(--space-2);
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+.changelog-entry__version {
+  font-weight: 700;
+}
+.changelog-entry__body {
+  user-select: text;
+}
+
+/* Редактор конфигов: список файлов слева, текст справа */
+.configs {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) 1fr;
+  gap: var(--space-3);
+  min-height: 520px;
+}
+.configs__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  max-height: 70vh;
+}
+.configs__files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  min-height: 0;
+}
+.configs__file {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.configs__file:hover {
+  background: rgb(var(--inset-rgb));
+}
+.configs__file[aria-selected='true'] {
+  background: var(--accent-soft, rgb(var(--inset-rgb)));
+  font-weight: 600;
+}
+.configs__editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.configs__head {
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* Имя файла — на всю строку, кнопки переносятся под него, если места мало */
+.configs__title {
+  flex: 1 1 260px;
+  gap: 2px;
+  min-width: 0;
+}
+.configs__name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.configs__text {
+  flex: 1;
+  min-height: 420px;
+  resize: vertical;
+  padding: var(--space-3);
+  border: 1px solid var(--line, transparent);
+  border-radius: var(--r-md);
+  background: rgb(var(--inset-rgb));
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+.configs__text:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+@media (max-width: 900px) {
+  .configs {
+    grid-template-columns: 1fr;
+  }
+}

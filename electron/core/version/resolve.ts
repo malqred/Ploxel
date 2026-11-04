@@ -61,10 +61,14 @@ export function splitLegacyArguments(line: string, vars: Record<string, string>)
     .map((part) => applyVars(part, vars));
 }
 
+/**
+ * Подставляет ${имя} из vars. Имена в версиях бывают в snake_case (${game_directory})
+ * и в camelCase (${quickPlayPath}) — ищем как есть и в нижнем регистре.
+ */
 export function applyVars(value: string, vars: Record<string, string>): string {
   return value.replace(/\$\{([^}]+)\}/g, (whole, name: string) => {
-    const key = name.toLowerCase();
-    return vars[key] !== undefined ? vars[key] : whole;
+    const found = vars[name] ?? vars[name.toLowerCase()];
+    return found !== undefined ? found : whole;
   });
 }
 

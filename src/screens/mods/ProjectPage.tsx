@@ -13,7 +13,7 @@ import { useToast } from '../../state/toast';
 import { fmtBytes, fmtDate, fmtNumber } from '../../i18n';
 import { sortGameVersions, summarizeGameVersions } from '../../../shared/game-versions';
 import { newInstanceTarget } from '../../../shared/instance-target';
-import type { CatalogProject, CatalogVersion, Instance, InstalledMod } from '../../../shared/types';
+import type { CatalogProject, CatalogProjectType, CatalogVersion, DatapackInfo, Instance, InstalledMod, WorldInfo } from '../../../shared/types';
 
 const KIND_BY_TYPE = {
   mod: 'mod',
@@ -42,10 +42,11 @@ export function ProjectPage({
   onBack,
   onInstalled,
   onInstanceCreated,
-  allowCreate = true
+  allowCreate = true,
+  world: initialWorld
 }: {
   project: CatalogProject;
-  kind: 'mod' | 'modpack' | 'resourcepack' | 'shader';
+  kind: CatalogProjectType;
   instance: Instance | null;
   instances: Instance[];
   onBack: () => void;
@@ -53,7 +54,12 @@ export function ProjectPage({
   onInstanceCreated?: (instance: Instance) => void;
   /** «Создать новую» на странице проекта: скрыта внутри уже открытой сборки */
   allowCreate?: boolean;
+  /** мир, в который ставится датапак (из ссылки «Датапаки» мира) */
+  world?: string;
 }) {
+  const isDatapack = kind === 'datapack';
+  // В новой сборке миров ещё нет — датапак ставить некуда
+  const canCreate = allowCreate && !isDatapack;
   const { settings } = useSettings();
   const [full, setFull] = useState<CatalogProject>(project);
   const [versions, setVersions] = useState<CatalogVersion[]>([]);
@@ -66,7 +72,9 @@ export function ProjectPage({
   const [filterLoader, setFilterLoader] = useState(
     instance && instance.loader.kind !== 'vanilla' ? instance.loader.kind : ''
   );
-  const [installed, setInstalled] = useState<InstalledMod | null>(null);
+  const [installed, setInstalled] = useState<{ fileName: string } | null>(null);
+  const [worlds, setWorlds] = useState<WorldInfo[]>([]);
+  const [worldId, setWorldId] = useState(initialWorld ?? '');
   const [busy, setBusy] = useState(false);
   const [downloading, setDownloading] = useState('');
   const [loading, setLoading] = useState(true);
@@ -137,7 +145,7 @@ export function ProjectPage({
         project.source,
         project.id,
         filterVersion || undefined,
-        usesLoader && filterLoader ? filterLoader : undefined
+        isDatapack ? 'datapack' : usesLoader && filterLoader ? filterLoader : undefined
       )
       .then((list) => {
         setVersions(list);
@@ -145,18 +153,35 @@ export function ProjectPage({
       })
       .catch((e) => toast('error', 'Не удалось получить версии', e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, [project.id, project.source, filterVersion, filterLoader, usesLoader]);
+  }, [project.id, project.source, filterVersion, filterLoader, usesLoader, isDatapack]);
 
+  // Датапак: миры выбранной сборки (новые сверху), по умолчанию — из ссылки или последний
   useEffect(() => {
-    if (!target) {
-      setInstalled(null);
+    if (!isDatapack || !target) {
+      setWorlds([]);
       return;
     }
+    void api.invoke<WorldInfo[]>('worlds:list', target.id).then((list) => {
+      setWorlds(list);
+      setWorldId((cur) => (list.some((w) => w.folder === cur) ? cur : list[0]?.folder ?? ''));
+    });
+  }, [isDatapack, target?.id]);
+
+  const refreshInstalled = () => {
     setInstalled(null);
+    if (!target) return;
+    if (isDatapack) {
+      if (!worldId) return;
+      void api.invoke<DatapackInfo[]>('datapacks:list', target.id, worldId).then((list) => {
+        setInstalled(list.find((d) => d.projectId === project.id) ?? null);
+      });
+      return;
+    }
     void api.invoke<InstalledMod[]>('mods:list', target.id).then((list) => {
       setInstalled(list.find((m) => m.projectId === project.id) ?? null);
     });
-  }, [target?.id, project.id]);
+  };
+  useEffect(refreshInstalled, [target?.id, project.id, isDatapack, worldId]);
 
   const chooseTarget = (id: string) => {
     if (id === CREATE_TARGET) {
@@ -236,6 +261,19 @@ export function ProjectPage({
     }
     setBusy(true);
     try {
+      if (isDatapack) {
+        if (!worldId) throw new Error('В сборке нет миров. Создайте мир в игре, затем поставьте датапак.');
+        const res = await api.invoke<DatapackInfo>('datapacks:install', target.id, worldId, project.source, project.id, {
+          versionId: targetVersion,
+          name: full.title,
+          iconUrl: full.iconUrl
+        });
+        setChosen(targetVersion);
+        setInstalled(res);
+        onInstalled();
+        toast('success', `${full.title} установлен`, 'Датапак включится при следующем входе в мир.');
+        return;
+      }
       if (kind === 'modpack') {
         const created = await api.invoke<Instance>('modpack:installFromProject', project.source, project.id, targetVersion);
         const manual = await api.invoke<number>('modpack:manualMods', created.id).catch(() => 0);
@@ -254,7 +292,7 @@ export function ProjectPage({
         target.id,
         project.source,
         project.id,
-        KIND_BY_TYPE[kind],
+        KIND_BY_TYPE[kind as keyof typeof KIND_BY_TYPE],
         { versionId: targetVersion, projectName: full.title, projectIcon: full.iconUrl }
       );
       setChosen(targetVersion);
@@ -471,7 +509,7 @@ export function ProjectPage({
           <Select
             value={targetId}
             options={[
-              ...(allowCreate
+              ...(canCreate
                 ? [
                     {
                       value: CREATE_TARGET,
@@ -485,7 +523,7 @@ export function ProjectPage({
             ]}
             onChange={chooseTarget}
             placeholder={
-              allowCreate
+              canCreate
                 ? creatingTarget
                   ? 'Создаём сборку…'
                   : 'Создать новую или выбрать существующую'
@@ -497,6 +535,24 @@ export function ProjectPage({
             width="100%"
             skipLabels
           />
+
+          {isDatapack && target && (
+            <>
+              <span className="field__label">Мир</span>
+              {worlds.length ? (
+                <Select
+                  value={worldId}
+                  options={worlds.map((w) => ({ value: w.folder, label: w.name, hint: w.gameVersion }))}
+                  onChange={setWorldId}
+                  width="100%"
+                />
+              ) : (
+                <div className="notice">
+                  <div>В этой сборке пока нет миров. Создайте мир в игре — датапак ставится в конкретный мир.</div>
+                </div>
+              )}
+            </>
+          )}
 
           <div className="divider" />
 
@@ -559,7 +615,9 @@ export function ProjectPage({
             <Button
               onClick={() => install()}
               loading={busy}
-              disabled={!chosen || !target || loading || (kind === 'mod' && target?.loader.kind === 'vanilla')}
+              disabled={
+                !chosen || !target || loading || (kind === 'mod' && target?.loader.kind === 'vanilla') || (isDatapack && !worldId)
+              }
               block
             >
               {kind === 'modpack' ? 'Создать сборку' : 'Установить'}
@@ -570,7 +628,11 @@ export function ProjectPage({
           <span className="tiny muted row" style={{ gap: 6 }}>
             <Users size={12} /> Обязательных зависимостей: {version?.dependencies.filter((d) => d.required).length ?? 0}
           </span>
-          <span className="tiny muted">Помощник при сборке докачает их автоматически.</span>
+          <span className="tiny muted">
+            {isDatapack
+              ? 'Зависимости датапака лаунчер не ставит сам: если они есть, поставьте их отдельно — они указаны на сайте проекта.'
+              : 'Помощник при сборке докачает их автоматически.'}
+          </span>
         </aside>
       </div>
 

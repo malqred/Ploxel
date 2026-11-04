@@ -86,6 +86,17 @@ export interface GeneralSettings {
   defaultInstanceId: string | null;
   /** обучение при первом запуске пройдено или пропущено */
   onboardingDone: boolean;
+  /** окно игры по умолчанию для сборок без своего размера */
+  gameWindow: GameWindow;
+  /** показывать в Discord, во что вы играете (нужен discordClientId в config.json) */
+  discordPresence: boolean;
+}
+
+/** Размер окна игры. width/height = 0 — размер выбирает сама игра. */
+export interface GameWindow {
+  width: number;
+  height: number;
+  fullscreen: boolean;
 }
 
 export interface DownloadMirrors {
@@ -147,7 +158,7 @@ export interface AppInfo {
   dataRoot: string;
   totalMemMb: number;
   freeMemMb: number;
-  config: { microsoftClientId: boolean; curseforgeKey: boolean; aiKey: boolean };
+  config: { microsoftClientId: boolean; curseforgeKey: boolean; aiKey: boolean; discordClientId: boolean };
   systemTheme: 'light' | 'dark';
   systemAnimations: boolean;
 }
@@ -191,6 +202,8 @@ export interface Instance {
   /** обложка как data URL — заполняется при чтении списка */
   coverDataUrl?: string;
   serverAddress?: string;
+  /** своё окно игры; не задано — как в настройках лаунчера */
+  gameWindow?: GameWindow;
   modpackFile?: string;
   playtimeMinutes?: number;
 }
@@ -297,6 +310,9 @@ export interface WorldInfo {
   isHardcore?: boolean;
 }
 
+/** Что ищется в каталоге. Датапаки ставятся не в сборку, а в мир. */
+export type CatalogProjectType = 'mod' | 'modpack' | 'resourcepack' | 'shader' | 'datapack';
+
 export interface CatalogProject {
   source: 'modrinth' | 'curseforge';
   id: string;
@@ -307,7 +323,7 @@ export interface CatalogProject {
   downloads: number;
   author: string;
   categories: string[];
-  projectType: 'mod' | 'modpack' | 'resourcepack' | 'shader';
+  projectType: CatalogProjectType;
   loaders: string[];
   gameVersions: string[];
   updatedAt: string;
@@ -332,7 +348,7 @@ export interface CatalogVersion {
 
 export interface CatalogSearchQuery {
   source: 'modrinth' | 'curseforge';
-  projectType: 'mod' | 'modpack' | 'resourcepack' | 'shader';
+  projectType: CatalogProjectType;
   query: string;
   gameVersion?: string;
   loader?: string;
@@ -511,4 +527,44 @@ export interface OnboardingState {
 
 export interface AccountView extends Account {
   sessionState: 'valid' | 'expired' | 'offline';
+}
+/** Датапак в папке datapacks мира. */
+export interface DatapackInfo {
+  /** имя файла или папки без .disabled */
+  fileName: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  isFolder: boolean;
+  sizeBytes: number;
+  source: 'modrinth' | 'curseforge' | 'local';
+  projectId?: string;
+  versionId?: string;
+  version?: string;
+  iconUrl?: string;
+}
+
+/** Файл настроек сборки, который можно открыть в редакторе. */
+export interface ConfigFileInfo {
+  /** путь относительно папки сборки, через «/» */
+  path: string;
+  sizeBytes: number;
+  modifiedAt: string;
+}
+
+/** Версия мода между установленной и новой — для «Что нового». */
+export interface ChangelogEntry {
+  versionId: string;
+  versionNumber: string;
+  datePublished: string;
+  /** markdown; пусто — автор не написал */
+  changelog: string;
+}
+
+/** Лог, загруженный на mclo.gs. */
+export interface SharedLog {
+  url: string;
+  id: string;
+  /** ключ удаления: mclo.gs выдаёт его один раз, лаунчер его не сохраняет */
+  token?: string;
 }

@@ -448,3 +448,12 @@ textarea.input {
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
 }
+
+/* Окно игры: свой размер — два узких поля и кнопка в одну строку */
+.game-window-size {
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.game-window-size .field {
+  width: 110px;
+}

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Иконка Ploxel: перламутровый блок с вырезанным «плей». PNG и ICO собирает scripts/make-icon.cjs -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1c1f"/>
+      <stop offset="1" stop-color="#050506"/>
+    </linearGradient>
+    <linearGradient id="base" x1="0" y1="0.2" x2="1" y2="0.8">
+      <stop offset="0" stop-color="#fdfbe9"/>
+      <stop offset="0.45" stop-color="#dfe7ff"/>
+      <stop offset="1" stop-color="#ffe4dc"/>
+    </linearGradient>
+    <radialGradient id="blue" cx="0.68" cy="0.22" r="0.5">
+      <stop offset="0" stop-color="#b7c9ff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#b7c9ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="pink" cx="0.25" cy="0.85" r="0.55">
+      <stop offset="0" stop-color="#f9d4f4" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#f9d4f4" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mint" cx="0.2" cy="0.3" r="0.45">
+      <stop offset="0" stop-color="#d9f7e4" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#d9f7e4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a4a50"/>
+      <stop offset="1" stop-color="#1a1a1d"/>
+    </linearGradient>
+    <path id="hex" d="M219.6 101.0 Q256.0 80.0 292.4 101.0 L372.0 147.0 Q408.4 168.0 408.4 210.0 L408.4 302.0 Q408.4 344.0 372.0 365.0 L292.4 411.0 Q256.0 432.0 219.6 411.0 L140.0 365.0 Q103.6 344.0 103.6 302.0 L103.6 210.0 Q103.6 168.0 140.0 147.0 Z"/>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#bg)"/>
+  <rect x="17.5" y="17.5" width="477" height="477" rx="114.5" fill="none" stroke="url(#rim)" stroke-width="3"/>
+  <g transform="translate(256 256) scale(1.1) translate(-256 -256)">
+    <!-- Блок: шестиугольник со скруглёнными углами, перелив — три пятна поверх базового градиента -->
+    <use href="#hex" fill="url(#base)"/>
+    <use href="#hex" fill="url(#blue)"/>
+    <use href="#hex" fill="url(#pink)"/>
+    <use href="#hex" fill="url(#mint)"/>
+    <!-- «Плей» на левой грани, в её перспективе -->
+    <path fill="#060607" stroke="#060607" stroke-width="20" stroke-linejoin="round" d="M164 222 L164 334 L240 326 Z"/>
+  </g>
+</svg>

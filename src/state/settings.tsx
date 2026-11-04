@@ -18,7 +18,13 @@ const SettingsContext = createContext<SettingsContextValue | null>(null);
 const LIGHT_THEMES = ['cream', 'sage', 'fog', 'sunset', 'sepia'];
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settings, setSettingsState] = useState<Settings | null>(null);
+  // Язык для дат, чисел и единиц меняется вместе с настройками — откуда бы ни пришла
+  // смена (вкладка «Язык», «Общие», другое окно), до того как интерфейс перерисуется
+  const setSettings = useCallback((s: Settings) => {
+    setLanguage(s.general.language);
+    setSettingsState(s);
+  }, []);
   const [info, setInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => {
@@ -28,7 +34,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (!alive) return;
       setSettings(s);
       setInfo(i);
-      setLanguage(s.general.language);
       maybeAutoMotion(s);
     })();
     const off = api.settings.onChange((s) => setSettings(s));

@@ -8,16 +8,25 @@ import { EmptyState } from '../../ui/Common';
 import { useToast } from '../../state/toast';
 import { useSettings } from '../../state/settings';
 import { fmtNumber } from '../../i18n';
-import type { CatalogProject, CatalogSearchResult, CatalogVersion, Instance, InstalledMod } from '../../../shared/types';
+import type {
+  CatalogProject,
+  CatalogProjectType,
+  CatalogSearchResult,
+  CatalogVersion,
+  DatapackInfo,
+  Instance,
+  InstalledMod
+} from '../../../shared/types';
 
-export type ContentType = 'mod' | 'modpack' | 'resourcepack' | 'shader';
+export type ContentType = CatalogProjectType;
 export type Source = 'modrinth' | 'curseforge';
 
 const TYPE_LABEL: Record<ContentType, string> = {
   mod: 'Моды',
   modpack: 'Сборки',
   resourcepack: 'Ресурспаки',
-  shader: 'Шейдеры'
+  shader: 'Шейдеры',
+  datapack: 'Датапаки'
 };
 
 const CATEGORIES: Record<ContentType, { id: string; label: string }[]> = {
@@ -46,6 +55,14 @@ const CATEGORIES: Record<ContentType, { id: string; label: string }[]> = {
     { id: 'realistic', label: 'Реалистичные' },
     { id: 'lighting', label: 'Освещение' },
     { id: 'cartoon', label: 'Мультяшные' }
+  ],
+  datapack: [
+    { id: 'worldgen', label: 'Генерация' },
+    { id: 'adventure', label: 'Приключения' },
+    { id: 'equipment', label: 'Снаряжение' },
+    { id: 'game-mechanics', label: 'Механики игры' },
+    { id: 'mobs', label: 'Мобы' },
+    { id: 'utility', label: 'Утилиты' }
   ]
 };
 
@@ -55,6 +72,7 @@ export function CatalogBrowser({
   instance,
   initialType = 'mod',
   initialQuery = '',
+  world,
   onOpenProject,
   onInstalled
 }: {
@@ -63,6 +81,8 @@ export function CatalogBrowser({
   instance: Instance | null;
   initialType?: ContentType;
   initialQuery?: string;
+  /** мир сборки для датапаков: «Скачать» ставит прямо в него */
+  world?: string;
   onOpenProject: (project: CatalogProject, kind: ContentType) => void;
   onInstalled?: () => void;
 }) {
@@ -91,11 +111,13 @@ export function CatalogBrowser({
   useEffect(() => {
     setInstalledIds(new Set());
     if (mode !== 'instance' || !instance) return;
-    void api
-      .invoke<InstalledMod[]>('mods:list', instance.id)
-      .then((list) => setInstalledIds(new Set(list.map((m) => m.projectId).filter(Boolean) as string[])))
-      .catch(() => undefined);
-  }, [mode, instance?.id]);
+    const ids = (list: { projectId?: string }[]) => setInstalledIds(new Set(list.map((m) => m.projectId).filter(Boolean) as string[]));
+    if (type === 'datapack') {
+      if (world) void api.invoke<DatapackInfo[]>('datapacks:list', instance.id, world).then(ids).catch(() => undefined);
+      return;
+    }
+    void api.invoke<InstalledMod[]>('mods:list', instance.id).then(ids).catch(() => undefined);
+  }, [mode, instance?.id, type, world]);
 
   const download = async (project: CatalogProject) => {
     if (installing.has(project.id)) return;
@@ -105,6 +127,21 @@ export function CatalogBrowser({
         const created = await api.invoke<Instance>('modpack:installFromProject', project.source, project.id);
         toast('success', 'Сборка создана', created.name);
         window.location.hash = `/library?instance=${created.id}`;
+        return;
+      }
+      // Датапак ставится в мир: мир задан — сразу в него, иначе выбор мира на странице проекта
+      if (type === 'datapack' && mode === 'instance' && instance) {
+        if (!world) {
+          onOpenProject(project, type);
+          return;
+        }
+        await api.invoke('datapacks:install', instance.id, world, project.source, project.id, {
+          name: project.title,
+          iconUrl: project.iconUrl
+        });
+        setInstalledIds((cur) => new Set(cur).add(project.id));
+        onInstalled?.();
+        toast('success', `${project.title} установлен`, 'Датапак включится при следующем входе в мир.');
         return;
       }
       if (mode === 'instance' && instance) {
@@ -131,7 +168,7 @@ export function CatalogBrowser({
         project.source,
         project.id,
         gameVersion || undefined,
-        type === 'mod' && loader ? loader : undefined
+        type === 'datapack' ? 'datapack' : type === 'mod' && loader ? loader : undefined
       );
       const file = versions[0]?.files.find((f) => f.primary) ?? versions[0]?.files[0];
       if (!file) throw new Error('Нет файла под выбранные версию игры и загрузчик.');
@@ -292,7 +329,13 @@ export function CatalogBrowser({
       </div>
 
       {mode === 'instance' && instance && (
-        <p className="tiny muted">{`Показаны материалы, совместимые с ${instance.loader.kind !== 'vanilla' ? `${instance.gameVersion} · ${instance.loader.kind}` : instance.gameVersion}. Фильтры можно менять.`}</p>
+        <p className="tiny muted">
+          {type === 'datapack'
+            ? world
+              ? `Датапаки для Minecraft ${instance.gameVersion}. «Скачать» ставит датапак в мир «${world}».`
+              : `Датапаки для Minecraft ${instance.gameVersion}. Датапак ставится в конкретный мир — его выберете на странице датапака.`
+            : `Показаны материалы, совместимые с ${instance.loader.kind !== 'vanilla' ? `${instance.gameVersion} · ${instance.loader.kind}` : instance.gameVersion}. Фильтры можно менять.`}
+        </p>
       )}
       {mode === 'browse' && (
         <p className="tiny muted">

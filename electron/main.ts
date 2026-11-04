@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeTheme, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc } from './ipc';
+import { initDiscordPresence } from './services/discord';
 import { forgetStoredCurseForgeKey } from './services/curseforge';
 import { applyWindowChrome } from './services/chrome';
 import { initPaths } from './services/paths';
@@ -114,6 +115,7 @@ app.whenReady().then(async () => {
   handleMediaProtocol();
   forgetStoredCurseForgeKey();
   registerIpc();
+  initDiscordPresence();
 
   const e2e = argValue('e2e');
   if (e2e) {

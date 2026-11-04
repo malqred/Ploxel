@@ -1,4 +1,5 @@
 import { getConfig } from './config';
+import { sanitizeLog } from '../core/log-sanitize';
 import { loadSettings } from './settings';
 import { getSecret } from './secrets';
 
@@ -52,26 +53,7 @@ export function aiAvailable(): boolean {
   return !!resolveAiConfig().apiKey;
 }
 
-/** Убирает из текста ник, пути, токены, IP-адреса и прочие личные данные. */
-export function sanitizeLog(text: string, nick?: string): string {
-  let out = text;
-  if (nick && nick.length >= 3) {
-    out = out.replaceAll(nick, '<ник>');
-  }
-  // Windows: C:\Users\Имя\... и вообще абсолютные пути
-  out = out.replace(/[A-Za-z]:\\Users\\[^\\\s]+/g, '<дом>');
-  out = out.replace(/[A-Za-z]:\\(?:[^\\\s:*?"<>|]+\\)*[^\\\s:*?"<>|]*/g, '<путь>');
-  // POSIX home
-  out = out.replace(/\/(?:home|Users)\/[^\s/]+/g, '<дом>');
-  // Токены и ключи
-  out = out.replace(/(accessToken|access_token|session|token|Bearer)[=:\s]+[A-Za-z0-9._~+/=-]{12,}/gi, '$1=<скрыто>');
-  out = out.replace(/\b[0-9a-f]{32}\b/gi, '<id>');
-  // IP-адреса (серверы/локальная сеть)
-  out = out.replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, '<ip>');
-  // UUID
-  out = out.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<uuid>');
-  return out;
-}
+export { sanitizeLog };
 
 export interface LogAnalysis {
   preview: string;

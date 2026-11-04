@@ -86,7 +86,7 @@ export function DownloadsIndicator() {
               {paused
                 ? 'пауза'
                 : !stats?.speedBps
-                  ? 'Подготовка…'
+                  ? main.detail || 'Подготовка…'
                   : stats.etaSeconds
                     ? `${speed(stats.speedBps)} · осталось ${eta(stats.etaSeconds)}`
                     : speed(stats.speedBps)}

@@ -17,6 +17,8 @@ export interface AppConfig {
   aiModel: string;
   aiApiKey: string;
   updateFeedUrl: string;
+  /** ID приложения Discord для статуса «Играет» (не секрет, но задаётся в config.json) */
+  discordClientId: string;
 }
 
 let cached: AppConfig | null = null;
@@ -44,7 +46,8 @@ export function getConfig(): AppConfig {
     aiBaseUrl: env.PLOXEL_AI_BASE_URL || merged.aiBaseUrl || 'https://api.openai.com/v1',
     aiModel: env.PLOXEL_AI_MODEL || merged.aiModel || 'gpt-4o-mini',
     aiApiKey: env.PLOXEL_AI_KEY || merged.aiApiKey || '',
-    updateFeedUrl: env.PLOXEL_UPDATE_URL || merged.updateFeedUrl || ''
+    updateFeedUrl: env.PLOXEL_UPDATE_URL || merged.updateFeedUrl || '',
+    discordClientId: env.PLOXEL_DISCORD_CLIENT_ID || merged.discordClientId || ''
   };
   return cached;
 }

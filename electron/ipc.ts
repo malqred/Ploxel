@@ -12,7 +12,7 @@ import { applyKeybindsOnCreate, keybindsFor } from './services/keybinds';
 import * as accounts from './services/accounts';
 import * as microsoft from './services/microsoft';
 import { getJavaNews, getNews, getPatchNote, getPatchNotes } from './services/news';
-import { setBroadcaster } from './services/events';
+import { emit, setBroadcaster } from './services/events';
 import { listVersions, isVersionInstalled } from './services/versions';
 import { installLoader, listLoaderVersions, versionIdFor } from './services/loaders';
 import { detectJava, ensureJava, recommendJava, downloadJava } from './services/java';
@@ -51,6 +51,9 @@ import {
 } from './services/launcher-import';
 import type { CrashCause } from '../shared/types';
 import { listWorlds, importWorld, exportWorld, worldFolder } from './services/worlds';
+import * as datapacks from './services/datapacks';
+import * as configs from './services/configs';
+import { deleteSharedLog, prepareSharedLog, uploadLog } from './services/log-share';
 import { clearBackgrounds, pickBackground } from './services/local-media';
 import * as screenshots from './services/screenshots';
 import { loginElyBy, signOutElyBy } from './services/elyby';
@@ -73,14 +76,19 @@ function handle(channel: string, fn: Handler) {
   ipcMain.handle(channel, (_e, ...args) => (fn as (...a: unknown[]) => unknown)(...args));
 }
 
-export function broadcast(channel: string, payload?: unknown) {
+function sendToWindows(channel: string, payload?: unknown) {
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) w.webContents.send(channel, payload);
   }
 }
 
+/** Событие окнам и подписчикам главного процесса (onEvent). */
+export function broadcast(channel: string, payload?: unknown) {
+  emit(channel, payload);
+}
+
 export function registerIpc(): void {
-  setBroadcaster(broadcast);
+  setBroadcaster(sendToWindows);
   configureDownloader(loadSettings().downloads);
   handle('settings:get', () => loadSettings());
   handle('settings:set', (patch: Partial<Settings>) => {
@@ -114,7 +122,8 @@ export function registerIpc(): void {
       config: {
         microsoftClientId: !!cfg.microsoftClientId || hasSecret('ms-client-id'),
         curseforgeKey: !!cfg.curseforgeApiKey,
-        aiKey: !!cfg.aiApiKey || hasSecret('ai-key')
+        aiKey: !!cfg.aiApiKey || hasSecret('ai-key'),
+        discordClientId: !!cfg.discordClientId
       },
       systemTheme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
       systemAnimations: true
@@ -361,6 +370,10 @@ export function registerIpc(): void {
   handle('logs:get', (instanceId: string) => getLogs(instanceId));
   handle('logs:clear', (instanceId: string) => clearLogs(instanceId));
   handle('logs:export', (instanceId: string, target: string) => exportLog(instanceId, target));
+  // Сначала окно показывает очищенный текст, на mclo.gs уходит ровно он
+  handle('logs:sharePreview', (log: string, nick?: string) => prepareSharedLog(log, nick));
+  handle('logs:share', (text: string) => uploadLog(text));
+  handle('logs:shareDelete', (id: string, token: string) => deleteSharedLog(id, token));
 
   /* ------------------------------ Загрузки ------------------------------ */
 
@@ -534,6 +547,7 @@ export function registerIpc(): void {
   });
   handle('mods:checkUpdates', (instanceId: string) => mods.checkUpdates(instanceId));
   handle('mods:update', (instanceId: string, modId: string) => mods.updateMod(instanceId, modId));
+  handle('mods:changelog', (instanceId: string, modId: string) => mods.modChangelog(instanceId, modId));
   handle('mods:rollback', (instanceId: string, modId: string) => mods.rollbackMod(instanceId, modId));
   handle('playtime:week', () => weekSummary());
   handle('mods:identify', (instanceId: string) => mods.identifyLocalMods(instanceId));
@@ -702,6 +716,30 @@ export function registerIpc(): void {
     return exportWorld(instanceId, folder, dest);
   });
   handle('worlds:open', (instanceId: string, folder: string) => shell.openPath(worldFolder(instanceId, folder)));
+
+  handle('datapacks:list', (instanceId: string, world: string) => datapacks.listDatapacks(instanceId, world));
+  handle(
+    'datapacks:install',
+    (instanceId: string, world: string, source: 'modrinth' | 'curseforge', projectId: string, opts?: { versionId?: string; name?: string; iconUrl?: string }) =>
+      datapacks.installDatapack(instanceId, world, source, projectId, opts)
+  );
+  handle('datapacks:addFiles', (instanceId: string, world: string, files: string[]) => datapacks.addDatapackFiles(instanceId, world, files));
+  handle('datapacks:setEnabled', (instanceId: string, world: string, fileName: string, enabled: boolean) =>
+    datapacks.setDatapackEnabled(instanceId, world, fileName, enabled)
+  );
+  handle('datapacks:remove', (instanceId: string, world: string, fileName: string) => datapacks.removeDatapack(instanceId, world, fileName));
+  handle('datapacks:open', async (instanceId: string, world: string) => {
+    const dir = datapacks.datapacksDir(instanceId, world);
+    await fsp.mkdir(dir, { recursive: true });
+    return shell.openPath(dir);
+  });
+
+  handle('configs:list', (instanceId: string) => configs.listConfigFiles(instanceId));
+  handle('configs:read', (instanceId: string, rel: string) => configs.readConfigFile(instanceId, rel));
+  handle('configs:write', (instanceId: string, rel: string, text: string, expectedModifiedAt?: string, force?: boolean) =>
+    configs.writeConfigFile(instanceId, rel, text, expectedModifiedAt, force)
+  );
+  handle('configs:reveal', (instanceId: string, rel: string) => shell.showItemInFolder(configs.resolveConfig(instanceId, rel)));
 
   /* ------------------------------ Скины ------------------------------ */
 

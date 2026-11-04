@@ -14,6 +14,24 @@ export function modpackPercent(phase: string, done: number, total: number): numb
 }
 
 /**
+ * Процент запуска игры по этапам: Java 0–25, клиент 25–35, библиотеки 35–50,
+ * ассеты 50–97, запуск — 100. Счётчик каждого этапа начинается с нуля, поэтому
+ * без общего процента карточка загрузок «застревала» на 100% после первого этапа.
+ */
+export function launchPercent(phase: string, done: number, total: number): number {
+  const part = total > 0 ? Math.min(1, Math.max(0, done / total)) : 0;
+  const span = (from: number, to: number) => Math.round(from + (to - from) * part);
+  if (phase === 'Загрузка Java') return span(0, 25);
+  if (phase === 'Проверка файлов игры') return 25;
+  if (phase === 'Клиент игры') return span(25, 35);
+  if (phase === 'Библиотеки') return span(35, 50);
+  if (phase === 'Ассеты') return span(50, 97);
+  if (phase === 'Подготовка Ely.by') return 97;
+  if (phase === 'Запуск игры') return 100;
+  return 0;
+}
+
+/**
  * Общий процент в карточке загрузок. Если идут «операции» (сборка, модпак,
  * запуск — задачи со счётчиком шагов без байтов), процент — по ним: файлы
  * внутри операции — лишь её часть. Иначе — по байтам всех файлов, а если

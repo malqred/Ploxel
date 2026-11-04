@@ -509,3 +509,11 @@
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-3);
 }
+.notice--danger {
+  background: color-mix(in srgb, var(--danger) 14%, rgb(var(--panel-rgb)));
+  align-items: center;
+}
+.notice--danger svg {
+  color: var(--danger);
+  margin-top: 0;
+}

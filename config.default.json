@@ -4,5 +4,6 @@
   "aiBaseUrl": "https://api.openai.com/v1",
   "aiModel": "gpt-4o-mini",
   "aiApiKey": "",
-  "updateFeedUrl": ""
+  "updateFeedUrl": "",
+  "discordClientId": "1567529515356266597"
 }

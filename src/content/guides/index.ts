@@ -3,11 +3,12 @@ import { ADVANCED_GUIDES } from './advanced';
 import { EXTRA_GUIDES } from './extra';
 import { CURRENT_GUIDES } from './current';
 import { V120_GUIDES } from './v120';
+import { V121_GUIDES } from './v121';
 import { COMMON_QUERIES } from './queries';
 import type { Guide } from './types';
 import { allowedTypos, editDistance, normalizeText, queryVariants, wordMatch } from '../../../shared/search';
 
-export const GUIDES: Guide[] = [...BASIC_GUIDES, ...ADVANCED_GUIDES, ...EXTRA_GUIDES, ...CURRENT_GUIDES, ...V120_GUIDES];
+export const GUIDES: Guide[] = [...BASIC_GUIDES, ...ADVANCED_GUIDES, ...EXTRA_GUIDES, ...CURRENT_GUIDES, ...V120_GUIDES, ...V121_GUIDES];
 export type { Guide, GuideSection } from './types';
 
 const STOP = new Set([
@@ -407,7 +408,8 @@ export const SETTINGS_LINKS = [
   { id: 'onboarding', title: 'Обучение', hint: 'запустить тур заново', hash: '/settings?tab=onboarding' },
   { id: 'controls', title: 'Настройки управления', hint: 'клавиши, дубликаты и сброс', hash: '/controls' },
   { id: 'about', title: 'О лаунчере', hint: 'обновления, GitHub, удаление и лицензии', hash: '/settings?tab=about' },
-  { id: 'translate', title: 'Перевод страниц модов', hint: 'MyMemory, лимит, ИИ', hash: '/settings?tab=ai' }
+  { id: 'translate', title: 'Перевод страниц модов', hint: 'MyMemory, лимит, ИИ', hash: '/settings?tab=ai' },
+  { id: 'game-window', title: 'Окно игры и статус в Discord', hint: 'размер окна, весь экран, «Играет в Ploxel»', hash: '/settings?tab=general' }
 ];
 /**
  * Время чтения для показа. В гайдах записано время «с запасом», а читают их
