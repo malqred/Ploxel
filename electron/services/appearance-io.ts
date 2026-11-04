@@ -38,23 +38,7 @@ const THEMES: readonly string[] = THEME_IDS;
 const MOTION = ['off', 'reduced', 'full'];
 const KINDS = ['theme', 'solid', 'gradient', 'animated'];
 const ANIMATED = ['aurora', 'waves', 'fireflies', 'grid', 'rain', 'orbits'];
-const FONT_IDS = [
-  'onest',
-  'inter',
-  'manrope',
-  'golos',
-  'nunito',
-  'rubik',
-  'montserrat',
-  'ptsans',
-  'comfortaa',
-  'lora',
-  'ptserif',
-  'playfair',
-  'cormorant',
-  'merriweather',
-  'jetbrains'
-];
+const FONT_IDS = ['onest', 'inter', 'manrope', 'montserrat', 'nunito', 'rubik', 'exo2', 'comfortaa', 'lora', 'playfair', 'caveat', 'jetbrains'];
 
 export interface ImportResult {
   ok: boolean;

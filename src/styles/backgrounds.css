@@ -3,9 +3,10 @@
    одна сцена и на весь экран, и в превью настроек. */
 
 .anim {
-  --a: var(--accent);
-  --a-soft: color-mix(in srgb, var(--accent) 55%, #ffffff);
-  --a-deep: color-mix(in srgb, var(--accent) 60%, #000000);
+  /* цвет элементов: свой из настроек фона или акцент */
+  --a: var(--anim-color, var(--accent));
+  --a-soft: color-mix(in srgb, var(--a) 55%, #ffffff);
+  --a-deep: color-mix(in srgb, var(--a) 60%, #000000);
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -294,7 +295,7 @@
   height: 76px;
   border-radius: var(--r-sm);
   overflow: hidden;
-  background: rgb(var(--bg-rgb));
+  background: var(--anim-bg, rgb(var(--bg-rgb)));
   margin-bottom: 6px;
   box-shadow: inset 0 0 0 1px rgb(var(--line-rgb) / 0.08);
 }

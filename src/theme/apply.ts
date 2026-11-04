@@ -34,6 +34,9 @@ export function applyAppearance(settings: Settings, systemDark: boolean) {
   root.style.setProperty('--bg-2', g.colors[1]);
   root.style.setProperty('--bg-3', g.colors[2] ?? g.colors[1]);
   root.style.setProperty('--bg-angle', `${g.angle}deg`);
+  // Свои цвета анимированного фона (фон под анимацией и её элементы); без них — тема и акцент
+  setOrRemove(root, '--anim-bg', a.background.animBg);
+  setOrRemove(root, '--anim-color', a.background.animColor);
 
   // Текст вне панелей должен читаться при любом фоне: считаем контраст
   // между фоном и текстом темы и при необходимости инвертируем.
@@ -63,9 +66,17 @@ export function applyAppearance(settings: Settings, systemDark: boolean) {
       alpha = Math.min(1, alpha + 0.05);
     }
     root.style.setProperty('--panel-opacity', alpha.toFixed(2));
+    // Непрозрачной панели размытие фона под ней не видно, а на анимированном фоне
+    // видеокарта пересчитывала его каждый кадр — выключаем его там, где оно невидимо
+    root.dataset.panels = alpha >= 1 ? 'solid' : 'glass';
   }
 
   void api.app.chrome(theme, dark);
+}
+
+function setOrRemove(root: HTMLElement, name: string, value: string | undefined) {
+  if (value) root.style.setProperty(name, value);
+  else root.style.removeProperty(name);
 }
 
 function rgbTripletToHex(triplet: string): string {
@@ -93,7 +104,7 @@ function sampleBackground(a: Settings['appearance'], dark: boolean): string {
   const t = themeById(a.theme);
   const base = (dark ? t.dark : t.light)[0];
   // Анимированный фон строится на цвете темы и акценте
-  if (bg.kind === 'animated') return mixHex(base, accentById(a).value, 0.25);
+  if (bg.kind === 'animated') return mixHex(bg.animBg || base, bg.animColor || accentById(a).value, 0.25);
   return base;
 }
 

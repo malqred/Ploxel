@@ -11,7 +11,7 @@ import { AiSuggestModal } from './mods/AiSuggestModal';
 import type { CatalogProject, Instance } from '../../shared/types';
 
 const BROWSE = '__browse__';
-const TYPES: ContentType[] = ['mod', 'modpack', 'resourcepack', 'shader', 'datapack'];
+const TYPES: ContentType[] = ['mod', 'modpack', 'resourcepack', 'shader', 'datapack', 'world'];
 
 export function ModsScreen() {
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -61,7 +61,7 @@ export function ModsScreen() {
           title="Библиотека"
           sub={
             cfOn
-              ? 'Modrinth и CurseForge: моды, сборки, ресурспаки, шейдеры и датапаки.'
+              ? 'Modrinth и CurseForge: моды, сборки, ресурспаки, шейдеры, датапаки и миры.'
               : 'Modrinth: моды, сборки, ресурспаки, шейдеры и датапаки.'
           }
           actions={

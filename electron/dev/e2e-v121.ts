@@ -168,7 +168,7 @@ export async function runV121E2E(): Promise<void> {
     const client = new DiscordClient(id || '0');
     const ok = await client.connect();
     if (ok) {
-      client.setActivity(buildActivity({ instanceName: 'E2E 1.2.1', gameVersion: '1.21.1', loader: 'fabric', startedAt: Date.now() }));
+      client.setActivity(buildActivity({ gameVersion: '1.21.1', loader: 'fabric', startedAt: Date.now() }));
       await new Promise((r) => setTimeout(r, 1500));
       client.setActivity(null);
       await new Promise((r) => setTimeout(r, 300));

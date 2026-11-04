@@ -22,6 +22,8 @@ async function searchOne(q: CatalogSearchQuery): Promise<CatalogSearchResult> {
  * остальных вариантов.
  */
 export async function searchCatalog(q: CatalogSearchQuery): Promise<CatalogSearchResult> {
+  // Миров на Modrinth нет — они есть только на CurseForge
+  if (q.projectType === 'world' && q.source === 'modrinth') return { hits: [], total: 0, offset: q.offset, limit: q.limit };
   const variants = q.query.trim() ? catalogQueries(q.query) : [q.query];
   // Жанровый запрос («оптимизация», «моды на магию») — ищем по категории
   // Modrinth и популярности: так находятся Sodium и Lithium, а не случайные

@@ -68,7 +68,8 @@ export function ProjectPage({
   const [targetId, setTargetId] = useState(instance?.id ?? '');
   const [localInstances, setLocalInstances] = useState<Instance[]>(instances);
   const [creatingTarget, setCreatingTarget] = useState(false);
-  const [filterVersion, setFilterVersion] = useState(instance?.gameVersion ?? '');
+  const [filterVersion, setFilterVersion] = useState(kind === 'world' ? '' : instance?.gameVersion ?? '');
+  // Карту обычно помечают одной версией игры — для миров по умолчанию показываем все файлы
   const [filterLoader, setFilterLoader] = useState(
     instance && instance.loader.kind !== 'vanilla' ? instance.loader.kind : ''
   );
@@ -191,7 +192,7 @@ export function ProjectPage({
     setTargetId(id);
     const inst = localInstances.find((i) => i.id === id);
     if (inst) {
-      setFilterVersion(inst.gameVersion);
+      if (kind !== 'world') setFilterVersion(inst.gameVersion);
       setFilterLoader(inst.loader.kind === 'vanilla' ? '' : inst.loader.kind);
     }
   };
@@ -272,6 +273,13 @@ export function ProjectPage({
         setInstalled(res);
         onInstalled();
         toast('success', `${full.title} установлен`, 'Датапак включится при следующем входе в мир.');
+        return;
+      }
+      if (kind === 'world') {
+        await api.invoke<WorldInfo>('worlds:installFromCatalog', target.id, project.source, project.id, { versionId: targetVersion, name: full.title });
+        setChosen(targetVersion);
+        onInstalled();
+        toast('success', `${full.title} добавлен`, `Мир появится в списке миров сборки «${target.name}».`);
         return;
       }
       if (kind === 'modpack') {
@@ -629,7 +637,9 @@ export function ProjectPage({
             <Users size={12} /> Обязательных зависимостей: {version?.dependencies.filter((d) => d.required).length ?? 0}
           </span>
           <span className="tiny muted">
-            {isDatapack
+            {kind === 'world'
+              ? 'Если миру нужны моды, они указаны на сайте проекта — поставьте их в сборку отдельно.'
+              : isDatapack
               ? 'Зависимости датапака лаунчер не ставит сам: если они есть, поставьте их отдельно — они указаны на сайте проекта.'
               : 'Помощник при сборке докачает их автоматически.'}
           </span>

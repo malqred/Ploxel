@@ -15,7 +15,7 @@ import { ensureJava, javaFits, readMajor } from './java';
 import { loadSettings } from './settings';
 import { buildCommand, buildLaunchPlan } from '../core/version/launch';
 import { compareVersions } from '../core/version-compare';
-import { appendLog, startNewSessionLog } from './logs';
+import { appendLog, flushLogFiles, startNewSessionLog } from './logs';
 import { createTask, finishTask, updateTask } from './downloader';
 import { launchPercent } from '../../shared/progress';
 import { emit } from './events';
@@ -209,6 +209,8 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
       const crashed = code !== 0 && code !== null && !stoppedByUser.has(instanceId);
       stoppedByUser.delete(instanceId);
       appendLog(instanceId, `Игра завершилась (код ${code ?? 'н/д'})`, 'launcher');
+      // Разбор падения читает ploxel-latest.log сразу — хвост лога должен быть уже в файле
+      flushLogFiles(instanceId);
       emit('game:exited', { instanceId, code, crashed });
       const current = readInstance(instanceId);
       if (current?.lastPlayedAt) {

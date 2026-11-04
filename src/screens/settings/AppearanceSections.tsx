@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ImagePlus, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { MediaBackground } from '../../ui/BackgroundLayer';
@@ -161,6 +161,18 @@ const gradientCss = (g: { angle: number; colors: string[] }) => `linear-gradient
 export function BackgroundSection() {
   const { settings, updateAppearance } = useSettings();
   const focused = useWindowFocused();
+  const systemDark = useSystemDark();
+  // Превью анимаций крутятся только пока сетка на экране: прокрученные вниз
+  // шесть сцен тратили видеокарту впустую
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [gridVisible, setGridVisible] = useState(true);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([entry]) => setGridVisible(entry.isIntersecting));
+    io.observe(el);
+    return () => io.disconnect();
+  });
   const [c1, setC1] = useState('#9DBFA6');
   const [c2, setC2] = useState('#D9D3B4');
   const [c3, setC3] = useState('');
@@ -172,6 +184,8 @@ export function BackgroundSection() {
   const bg = a.background;
   const gradients = [...GRADIENTS, ...a.customGradients];
   const gradient = gradients.find((g) => g.id === bg.gradientId) ?? GRADIENTS[0];
+  const themeDef = THEMES.find((th) => th.id === a.theme) ?? THEMES[0];
+  const animBgDefault = (resolveDark(a.colorMode, systemDark) ? themeDef.dark : themeDef.light)[0];
 
   const set = (patch: Partial<typeof bg>) => updateAppearance({ background: { ...bg, ...patch } });
   const pickMedia = async () => {
@@ -329,17 +343,17 @@ export function BackgroundSection() {
 
       {bg.kind === 'animated' && (
         <div className="bg-subpanel">
-          <div className="anim-grid">
+          <div className="anim-grid" ref={gridRef}>
             {ANIMATIONS.map((anim) => (
               <button key={anim.id} className="anim-card" aria-pressed={bg.animatedId === anim.id} onClick={() => set({ animatedId: anim.id })}>
-                <span className="anim-preview" data-paused={!focused ? 'true' : undefined}>
+                <span className="anim-preview" data-paused={!focused || !gridVisible ? 'true' : undefined}>
                   <AnimatedScene id={anim.id} preview />
                 </span>
                 <span className="anim-card__name">{anim.name}</span>
               </button>
             ))}
           </div>
-          <Row label={`Яркость — ${Math.round((bg.intensity ?? 0.7) * 100)}%`} hint="Цвет анимации берётся из акцента." stack>
+          <Row label={`Яркость — ${Math.round((bg.intensity ?? 0.7) * 100)}%`} hint="Насколько заметна анимация поверх фона." stack>
             <div style={{ maxWidth: 360 }}>
               <Slider
                 value={Math.round((bg.intensity ?? 0.7) * 100)}
@@ -351,6 +365,22 @@ export function BackgroundSection() {
               />
             </div>
           </Row>
+          <AnimationColorRow
+            label="Цвет фона"
+            hint="Под анимацией. По умолчанию — цвет фона темы."
+            value={bg.animBg}
+            fallback={animBgDefault}
+            resetLabel="Как в теме"
+            onChange={(v) => set({ animBg: v })}
+          />
+          <AnimationColorRow
+            label="Цвет анимации"
+            hint="Светлячки, волны, сетка и другие элементы. По умолчанию — цвет акцента."
+            value={bg.animColor}
+            fallback={accentById(a).value}
+            resetLabel="Как акцент"
+            onChange={(v) => set({ animColor: v })}
+          />
           {a.motion === 'off' && (
             <div className="notice">
               <div>Анимации выключены в разделе «Анимации» ниже — фон будет неподвижным.</div>
@@ -366,4 +396,33 @@ export function shadeColor(hex: string, amount: number): string {
   const [r, g, b] = hexToRgb(hex);
   const mix = (c: number) => Math.max(0, Math.min(255, Math.round(c + (amount < 0 ? c : 255 - c) * amount)));
   return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+/** Цвет анимированного фона: свой цвет или как по умолчанию (пустая строка — «не задан»). */
+function AnimationColorRow({
+  label,
+  hint,
+  value,
+  fallback,
+  resetLabel,
+  onChange
+}: {
+  label: string;
+  hint: string;
+  value: string | undefined;
+  fallback: string;
+  resetLabel: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Row label={label} hint={hint}>
+      <div className="row" style={{ gap: 8 }}>
+        {value && (
+          <Button variant="ghost" size="sm" onClick={() => onChange('')}>
+            {resetLabel}
+          </Button>
+        )}
+        <input className="custom-color" type="color" value={value || fallback} onChange={(e) => onChange(e.target.value)} aria-label={label} />
+      </div>
+    </Row>
+  );
 }

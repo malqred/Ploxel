@@ -74,7 +74,7 @@ function dirSize(dir: string): number {
 }
 
 /** Импорт мира из zip. Возвращает имя папки мира. */
-export async function importWorld(instanceId: string, zipFile: string): Promise<WorldInfo> {
+export async function importWorld(instanceId: string, zipFile: string, nameHint?: string): Promise<WorldInfo> {
   if (!readInstance(instanceId)) throw new Error('Сборка не найдена');
   // Записи читаем по одной — мир на гигабайты не загружается в память целиком
   const zip = openZipLite(zipFile);
@@ -89,9 +89,10 @@ export async function importWorld(instanceId: string, zipFile: string): Promise<
 
     const rootPrefix = levelEntry.name === 'level.dat' ? '' : levelEntry.name.slice(0, -'level.dat'.length);
     // Имя мира: папка внутри архива, иначе имя самого архива («floating island.zip»)
-    const fromZip = path.basename(zipFile).replace(/\.zip$/i, '');
+    const fromZip = nameHint || path.basename(zipFile).replace(/\.zip$/i, '');
     let folderName = path.basename(rootPrefix.replace(/\/$/, '')) || fromZip || 'Импортированный мир';
-    folderName = sanitizeName(folderName) || 'Импортированный мир';
+    // «§aOneblock §2Original» — цветовые коды Minecraft в имени папки не нужны
+    folderName = sanitizeName(folderName.replace(/§./g, '').replace(/\s+/g, ' ').trim()) || 'Импортированный мир';
     const savesDir = path.join(instanceDir(instanceId), 'saves');
     await fsp.mkdir(savesDir, { recursive: true });
     let target = path.join(savesDir, folderName);

@@ -11,16 +11,12 @@
   gap: var(--space-4);
   animation: fade-in var(--dur-slow) var(--ease-out);
 }
+/* Знак Ploxel на заставке: та же иконка, что в меню, слегка «дышит» */
 .splash__mark {
   width: 64px;
   height: 64px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-lg);
-  color: var(--accent-text);
-  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 85%, white), var(--accent));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -4px 0 color-mix(in srgb, var(--accent) 65%, black),
-    0 12px 30px rgba(var(--shadow-rgb), 0.25);
+  display: block;
+  filter: drop-shadow(0 12px 24px rgba(var(--shadow-rgb), 0.3));
   animation: splash-pulse 2.4s var(--ease-standard) infinite;
 }
 @keyframes splash-pulse {

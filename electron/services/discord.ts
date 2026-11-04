@@ -3,6 +3,7 @@
 // не происходит. Нужен ID приложения Discord в config.json (discordClientId).
 
 import net from 'node:net';
+import { app } from 'electron';
 import crypto from 'node:crypto';
 import { getConfig } from './config';
 import { loadSettings } from './settings';
@@ -88,9 +89,17 @@ export class DiscordClient {
     );
   }
 
+  /**
+   * Закрыть соединение после отправки уже записанного (в том числе «снять статус»)
+   * и с кадром CLOSE: при обрыве через destroy() последний кадр мог не уйти, и статус
+   * «Играет» оставался висеть в профиле.
+   */
   close(): void {
-    this.socket?.destroy();
+    const socket = this.socket;
     this.socket = null;
+    if (!socket || socket.destroyed) return;
+    socket.end(encodeFrame(OP.CLOSE, {}));
+    setTimeout(() => socket.destroy(), 1000).unref();
   }
 }
 
@@ -141,10 +150,10 @@ async function refresh(): Promise<void> {
   if (!(await client.connect())) return; // Discord не запущен — статус просто не показываем
   client.setActivity(
     buildActivity({
-      instanceName: instance.name,
       gameVersion: instance.gameVersion,
       loader: instance.loader.kind,
-      startedAt: last[1]
+      startedAt: last[1],
+      appVersion: app.getVersion()
     })
   );
 }

@@ -37,11 +37,13 @@ export function decodeFrames(buffer: Buffer): { frames: Frame[]; rest: Buffer } 
   return { frames, rest: buffer.subarray(offset) };
 }
 
+/** Что видно в статусе. Название сборки не передаётся: пользователь не хочет его показывать. */
 export interface PresenceInput {
-  instanceName: string;
   gameVersion: string;
   loader: string;
   startedAt: number;
+  /** версия лаунчера: входит в ссылку на картинку, чтобы Discord не показывал старую из кэша */
+  appVersion?: string;
 }
 
 const LOADER_NAME: Record<string, string> = {
@@ -65,13 +67,21 @@ function clip(text: string): string {
  */
 export const PRESENCE_IMAGE = 'https://raw.githubusercontent.com/malqred/Ploxel/main/build/icon.png';
 
-/** Активность «Играет»: сборка, версия и загрузчик, время с начала игры. */
+/**
+ * Ссылка на картинку статуса. Discord кэширует картинку по ссылке: после смены иконки
+ * он продолжал бы показывать старую, поэтому в ссылке — версия лаунчера.
+ */
+export function presenceImage(appVersion?: string): string {
+  return appVersion ? `${PRESENCE_IMAGE}?v=${encodeURIComponent(appVersion)}` : PRESENCE_IMAGE;
+}
+
+/** Активность «Играет»: версия игры, загрузчик и время с начала игры. */
 export function buildActivity(input: PresenceInput) {
   return {
-    details: clip(input.instanceName),
-    state: clip(`Minecraft ${input.gameVersion} · ${LOADER_NAME[input.loader] ?? input.loader}`),
+    details: clip(`Minecraft ${input.gameVersion}`),
+    state: clip(LOADER_NAME[input.loader] ?? input.loader),
     timestamps: { start: Math.floor(input.startedAt / 1000) },
-    assets: { large_image: PRESENCE_IMAGE, large_text: 'Ploxel' },
+    assets: { large_image: presenceImage(input.appVersion), large_text: 'Ploxel' },
     instance: false
   };
 }

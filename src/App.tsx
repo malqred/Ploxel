@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderOpen,
-  Gamepad2,
   Home,
   Keyboard,
   Layers,
@@ -20,6 +19,7 @@ import {
 import { useSettings } from './state/settings';
 import { api } from './api';
 import { BackgroundLayer } from './ui/BackgroundLayer';
+import { PloxelMark } from './ui/PloxelMark';
 import { DownloadsIndicator } from './ui/DownloadsIndicator';
 import { AccountModal } from './ui/AccountModal';
 import { CrashDialog } from './ui/CrashDialog';
@@ -179,9 +179,7 @@ export function App() {
       <div className="app">
         <BackgroundLayer settings={null} systemDark={systemDark} paused={false} />
         <div className="splash">
-          <div className="splash__mark">
-            <Gamepad2 size={28} />
-          </div>
+          <PloxelMark className="splash__mark" size={64} />
           <div className="splash__name">Ploxel</div>
         </div>
       </div>
@@ -221,7 +219,7 @@ export function App() {
         <aside className={`sidebar ${collapsed ? 'sidebar--mini' : ''}`}>
           <div className="brand" title="Ploxel">
             <span className="brand__mark">
-              <Gamepad2 size={18} />
+              <PloxelMark size={42} />
             </span>
             {!collapsed && <span className="brand__text">Ploxel</span>}
           </div>

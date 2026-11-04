@@ -57,26 +57,24 @@ export interface FontDef {
   id: string;
   name: string;
   stack: string;
-  kind: 'sans' | 'serif' | 'mono';
+  kind: 'sans' | 'serif' | 'mono' | 'hand';
   file: string;
   license: string;
 }
 
+/** Все шрифты — с кириллицей и латиницей (проверяет scripts/fetch-fonts.mjs). */
 export const FONTS: FontDef[] = [
   { id: 'onest', name: 'Onest', stack: "'Onest', system-ui, sans-serif", kind: 'sans', file: 'onest.woff2', license: 'OFL-1.1' },
   { id: 'inter', name: 'Inter', stack: "'Inter', system-ui, sans-serif", kind: 'sans', file: 'inter.woff2', license: 'OFL-1.1' },
   { id: 'manrope', name: 'Manrope', stack: "'Manrope', system-ui, sans-serif", kind: 'sans', file: 'manrope.woff2', license: 'OFL-1.1' },
-  { id: 'golos', name: 'Golos Text', stack: "'Golos Text', system-ui, sans-serif", kind: 'sans', file: 'golos.woff2', license: 'OFL-1.1' },
+  { id: 'montserrat', name: 'Montserrat', stack: "'Montserrat', system-ui, sans-serif", kind: 'sans', file: 'montserrat.woff2', license: 'OFL-1.1' },
   { id: 'nunito', name: 'Nunito', stack: "'Nunito', system-ui, sans-serif", kind: 'sans', file: 'nunito.woff2', license: 'OFL-1.1' },
   { id: 'rubik', name: 'Rubik', stack: "'Rubik', system-ui, sans-serif", kind: 'sans', file: 'rubik.woff2', license: 'OFL-1.1' },
-  { id: 'montserrat', name: 'Montserrat', stack: "'Montserrat', system-ui, sans-serif", kind: 'sans', file: 'montserrat.woff2', license: 'OFL-1.1' },
-  { id: 'ptsans', name: 'PT Sans', stack: "'PT Sans', system-ui, sans-serif", kind: 'sans', file: 'ptsans.woff2', license: 'OFL-1.1' },
+  { id: 'exo2', name: 'Exo 2', stack: "'Exo 2', system-ui, sans-serif", kind: 'sans', file: 'exo2.woff2', license: 'OFL-1.1' },
   { id: 'comfortaa', name: 'Comfortaa', stack: "'Comfortaa', system-ui, sans-serif", kind: 'sans', file: 'comfortaa.woff2', license: 'OFL-1.1' },
   { id: 'lora', name: 'Lora', stack: "'Lora', Georgia, serif", kind: 'serif', file: 'lora.woff2', license: 'OFL-1.1' },
-  { id: 'ptserif', name: 'PT Serif', stack: "'PT Serif', Georgia, serif", kind: 'serif', file: 'ptserif.woff2', license: 'OFL-1.1' },
   { id: 'playfair', name: 'Playfair Display', stack: "'Playfair Display', Georgia, serif", kind: 'serif', file: 'playfair.woff2', license: 'OFL-1.1' },
-  { id: 'cormorant', name: 'Cormorant Garamond', stack: "'Cormorant Garamond', Georgia, serif", kind: 'serif', file: 'cormorant.woff2', license: 'OFL-1.1' },
-  { id: 'merriweather', name: 'Merriweather', stack: "'Merriweather', Georgia, serif", kind: 'serif', file: 'merriweather.woff2', license: 'OFL-1.1' },
+  { id: 'caveat', name: 'Caveat', stack: "'Caveat', 'Comic Sans MS', cursive", kind: 'hand', file: 'caveat.woff2', license: 'OFL-1.1' },
   { id: 'jetbrains', name: 'JetBrains Mono', stack: "'JetBrains Mono', monospace", kind: 'mono', file: 'jetbrains.woff2', license: 'OFL-1.1' }
 ];
 
@@ -92,8 +90,12 @@ export function gradientById(settings: { gradientId: string; customGradients: Gr
   );
 }
 
+/** Шрифты прошлых версий, которых больше нет, — на похожие из нового набора. */
+const RETIRED_FONTS: Record<string, string> = { golos: 'onest', ptsans: 'inter', ptserif: 'lora', cormorant: 'playfair', merriweather: 'lora' };
+
 export function fontById(id: string): FontDef {
-  return FONTS.find((f) => f.id === id) ?? FONTS[0];
+  const wanted = RETIRED_FONTS[id] ?? id;
+  return FONTS.find((f) => f.id === wanted) ?? FONTS[0];
 }
 
 /** Контрастный цвет текста для кнопки с заданным фоном (WCAG).

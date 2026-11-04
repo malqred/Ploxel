@@ -45,19 +45,60 @@ function queueEmit(instanceId: string, line: LogLine) {
   }
 }
 
+/**
+ * Запись на диск — пачками раз в 250 мс. Раньше каждая строка открывала и
+ * дописывала два файла синхронно: модпак на сотни модов пишет тысячи строк
+ * в секунду, и главный процесс лаунчера был занят только этим.
+ */
+const DISK_FLUSH_MS = 250;
+const diskPending = new Map<string, string[]>();
+const knownDirs = new Set<string>();
+let diskTimer: ReturnType<typeof setTimeout> | null = null;
+
 function writeToDisk(instanceId: string, text: string) {
-  try {
-    const dir = path.join(instanceDir(instanceId), 'logs');
-    fs.mkdirSync(dir, { recursive: true });
-    const stamp = new Date().toISOString().slice(0, 10);
-    fs.appendFileSync(path.join(dir, `ploxel-${stamp}.log`), text + '\n', 'utf8');
-    fs.appendFileSync(path.join(dir, 'ploxel-latest.log'), text + '\n', 'utf8');
-  } catch {
-    /* диск может быть недоступен — не мешаем игре */
+  const list = diskPending.get(instanceId) ?? [];
+  list.push(text);
+  diskPending.set(instanceId, list);
+  diskTimer ??= setTimeout(() => {
+    diskTimer = null;
+    flushLogFiles();
+  }, DISK_FLUSH_MS);
+}
+
+/** Дописать накопленные строки в файлы логов сейчас (выход из игры, новый сеанс, закрытие лаунчера). */
+export function flushLogFiles(instanceId?: string) {
+  for (const [id, lines] of diskPending) {
+    if (instanceId && id !== instanceId) continue;
+    diskPending.delete(id);
+    if (!lines.length) continue;
+    const dir = path.join(instanceDir(id), 'logs');
+    const chunk = lines.join('\n') + '\n';
+    const write = () => {
+      if (!knownDirs.has(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        knownDirs.add(dir);
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      fs.appendFileSync(path.join(dir, `ploxel-${stamp}.log`), chunk, 'utf8');
+      fs.appendFileSync(path.join(dir, 'ploxel-latest.log'), chunk, 'utf8');
+    };
+    try {
+      write();
+    } catch {
+      // Папку могли удалить (вместе со сборкой) — создаём заново и пробуем ещё раз
+      knownDirs.delete(dir);
+      try {
+        write();
+      } catch {
+        /* диск недоступен — не мешаем игре */
+      }
+    }
   }
 }
 
 export function startNewSessionLog(instanceId: string) {
+  // Хвост прошлого сеанса — в файлы до того, как ploxel-latest.log очистится
+  flushLogFiles(instanceId);
   try {
     const dir = path.join(instanceDir(instanceId), 'logs');
     fs.mkdirSync(dir, { recursive: true });

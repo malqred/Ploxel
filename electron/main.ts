@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeTheme, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc } from './ipc';
+import { flushLogFiles } from './services/logs';
 import { initDiscordPresence } from './services/discord';
 import { forgetStoredCurseForgeKey } from './services/curseforge';
 import { applyWindowChrome } from './services/chrome';
@@ -131,6 +132,12 @@ app.whenReady().then(async () => {
 
   createWindow();
   const w = win!;
+  // Для замеров: окно поверх остальных и в фокусе — иначе анимации на паузе и замер нечестный
+  if (argValue('focus') !== undefined) {
+    w.setAlwaysOnTop(true, 'screen-saver');
+    w.once('ready-to-show', () => w.focus());
+    setTimeout(() => w.focus(), 1500);
+  }
   const shot = argValue('screenshot');
   const evalCode = argValue('evalfile')
     ? fs.readFileSync(argValue('evalfile')!, 'utf8')
@@ -193,6 +200,9 @@ app.whenReady().then(async () => {
     }
   }, 7000);
 });
+
+// Последняя пачка лога игры — на диск перед выходом
+app.on('will-quit', () => flushLogFiles());
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

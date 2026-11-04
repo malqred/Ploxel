@@ -61,7 +61,11 @@ const USER_AGENT = 'PloxelLauncher/0.5 (contact: local)';
 const LARGE_FILE_MIN = 8 * 1024 * 1024;
 const MAX_ATTEMPTS = 4;
 const HEADER_TIMEOUT_MS = 30_000;
-const STALL_TIMEOUT_MS = 60_000;
+/** сколько терпеть, что сервер не передаёт ни байта; живое соединение так долго не молчит */
+const STALL_TIMEOUT_MS = 20_000;
+/** мелкие файлы (ассеты, библиотеки) отвечают сразу — дольше ждать ответа нет смысла */
+const SMALL_FILE_MAX = 1024 * 1024;
+const SMALL_HEADER_TIMEOUT_MS = 12_000;
 const RETRY_BASE_MS = 400;
 const RETRY_MAX_MS = 4000;
 const EMIT_THROTTLE_MS = 250;
@@ -297,6 +301,42 @@ const proxyFetches = new Map<string, FetchFn>();
  * Глобальный fetch пулится keep-alive по origin (undici-стек), HTTP/2 не использует.
  * Если задан прокси через HTTPS_PROXY/HTTP_PROXY и undici доступен — ProxyAgent.
  */
+/**
+ * Сколько ждать ответа сервера и сколько терпеть паузу в данных. Зависшее
+ * соединение быстрее начать заново (новым соединением): раньше при 60 с ожидания
+ * и 4 попытках «хвост» загрузки стоял на 0 Б/с по нескольку минут.
+ */
+export function requestTimeouts(size?: number): { header: number; stall: number } {
+  return size !== undefined && size > 0 && size <= SMALL_FILE_MAX
+    ? { header: SMALL_HEADER_TIMEOUT_MS, stall: STALL_TIMEOUT_MS }
+    : { header: HEADER_TIMEOUT_MS, stall: STALL_TIMEOUT_MS };
+}
+
+/**
+ * fetch через отдельное соединение — для повторов: в общем пуле keep-alive мог
+ * остаться повисший сокет, и повтор ушёл бы в него же. Без undici — обычный fetch.
+ */
+async function freshFetch(url: string): Promise<FetchFn> {
+  if (process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy) return getFetch(url);
+  try {
+    const undici = (await import('undici')) as unknown as {
+      Agent: new (o?: object) => { close(): Promise<void> };
+      fetch: (u: string, i: object) => Promise<Response>;
+    };
+    return async (u, i) => {
+      const dispatcher = new undici.Agent({ keepAliveTimeout: 1, connections: 1 });
+      try {
+        return await undici.fetch(u, { ...i, dispatcher });
+      } finally {
+        // тело читается после возврата — закрываем агент, когда соединение уже не нужно
+        setTimeout(() => void dispatcher.close().catch(() => undefined), 120_000).unref();
+      }
+    };
+  } catch {
+    return getFetch(url);
+  }
+}
+
 async function getFetch(url: string): Promise<FetchFn> {
   const proxy = url.startsWith('https:')
     ? process.env.HTTPS_PROXY || process.env.https_proxy
@@ -347,10 +387,12 @@ interface OpenReq {
 async function openRequest(
   url: string,
   headers: Record<string, string>,
-  signal: AbortSignal
+  signal: AbortSignal,
+  opts: { size?: number; fresh?: boolean } = {}
 ): Promise<OpenReq> {
   const target = mirrorUrl(url);
-  const fn = await getFetch(target);
+  const fn = opts.fresh ? await freshFetch(target) : await getFetch(target);
+  const limits = requestTimeouts(opts.size);
   const ctrl = new AbortController();
   if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new CancelledError();
   const onOuterAbort = () => ctrl.abort(signal.reason);
@@ -365,7 +407,7 @@ async function openRequest(
     if (headerTimer) clearTimeout(headerTimer);
     if (stallTimer) clearTimeout(stallTimer);
   };
-  headerTimer = setTimeout(() => ctrl.abort(new Error('Нет ответа от сервера (таймаут)')), HEADER_TIMEOUT_MS);
+  headerTimer = setTimeout(() => ctrl.abort(new Error('Нет ответа от сервера (таймаут)')), limits.header);
   let res: Response;
   try {
     res = await fn(target, { headers: { 'User-Agent': USER_AGENT, ...headers }, signal: ctrl.signal });
@@ -382,7 +424,7 @@ async function openRequest(
     if (stallTimer) clearTimeout(stallTimer);
     stallTimer = setTimeout(
       () => ctrl.abort(new Error('Загрузка зависла: сервер не передаёт данные')),
-      STALL_TIMEOUT_MS
+      limits.stall
     );
   };
   bump();
@@ -395,8 +437,11 @@ function networkMessage(e: unknown): string {
   return m;
 }
 
-/** Проверка «идём или ждём паузу/отмены» между чанками. */
-export type PauseGate = () => Promise<void>;
+/**
+ * Проверка «идём или ждём паузу/отмены» между чанками. onWait вызывается, пока
+ * загрузка на паузе: так таймер зависания не обрывает соединение во время паузы.
+ */
+export type PauseGate = (onWait?: () => void) => Promise<void>;
 
 /** Куда сообщить о принятых байтах (прогресс, скорость, ETA). */
 export type ByteReporter = (n: number) => void;
@@ -441,14 +486,15 @@ async function downloadSingle(
   item: DownloadItem,
   signal: AbortSignal,
   gate: PauseGate,
-  report: ByteReporter
+  report: ByteReporter,
+  attempt = 0
 ): Promise<void> {
   const part = partPath(item);
   let start = await existingSize(part);
   const headers: Record<string, string> = {};
   if (start > 0) headers.Range = `bytes=${start}-`;
 
-  const req = await openRequest(item.url, headers, signal);
+  const req = await openRequest(item.url, headers, signal, { size: item.size, fresh: attempt > 0 });
   const { res, bump, cleanup } = req;
   try {
     if (res.status === 429) throw new Throttle(retryAfterMs(res));
@@ -478,13 +524,14 @@ async function downloadSingle(
       if (!reader) return out.end();
       (async () => {
         for (;;) {
-          await gate();
+          await gate(bump);
           const { done, value } = await reader.read();
           if (done) break;
           if (!value) continue;
           bump();
           const buf = Buffer.from(value);
           await pacer.take(buf.length);
+          bump(); // ограничитель скорости мог подержать чтение — это не зависание
           if (!out.write(buf)) await drain(out);
           report(buf.length);
         }
@@ -594,7 +641,7 @@ async function downloadChunk(
       if (!reader) return out.end();
       (async () => {
         for (;;) {
-          await gate();
+          await gate(bump);
           const { done, value } = await reader.read();
           if (done) break;
           if (!value) continue;
@@ -603,6 +650,7 @@ async function downloadChunk(
           if (room <= 0) break;
           const buf = Buffer.from(value).subarray(0, Math.min(room, value.byteLength));
           await pacer.take(buf.length);
+          bump(); // ограничитель скорости мог подержать чтение — это не зависание
           if (buf.length > 0 && !out.write(buf)) await drain(out);
           got += buf.length;
           report(buf.length);
@@ -692,11 +740,12 @@ async function downloadMulti(
 type TaskLookup = () => DownloadTask | undefined;
 
 function makeGate(lookup: TaskLookup, signal: AbortSignal): PauseGate {
-  return async () => {
+  return async (onWait) => {
     for (;;) {
       if (signal.aborted) throw new CancelledError();
       const t = lookup();
       if (!t || t.status !== 'paused') return;
+      onWait?.();
       await sleep(40);
     }
   };
@@ -762,7 +811,7 @@ async function doDownload(
     const src = attempt % 2 === 1 ? withMirror(item) : item;
     try {
       if (threads > 0) await downloadMulti(src, total as number, signal, gate, report);
-      else await downloadSingle(src, signal, gate, report);
+      else await downloadSingle(src, signal, gate, report, attempt);
       await fsp.rename(partPath(item), item.dest); // атомарное перенесение
       if (threads > 0) cleanupParts(item, threads);
       return;

@@ -34,6 +34,10 @@ export interface BackgroundSettings {
   animatedId: string;
   /** 0..1 — насыщенность анимированного фона */
   intensity: number;
+  /** для kind = animated: цвет фона под анимацией; не задан — цвет темы */
+  animBg?: string;
+  /** для kind = animated: цвет элементов анимации; не задан — цвет акцента */
+  animColor?: string;
   /** для kind = media: файл в папке backgrounds (картинка, GIF или видео) */
   mediaFile?: string;
   mediaType?: 'image' | 'video';
@@ -311,7 +315,7 @@ export interface WorldInfo {
 }
 
 /** Что ищется в каталоге. Датапаки ставятся не в сборку, а в мир. */
-export type CatalogProjectType = 'mod' | 'modpack' | 'resourcepack' | 'shader' | 'datapack';
+export type CatalogProjectType = 'mod' | 'modpack' | 'resourcepack' | 'shader' | 'datapack' | 'world';
 
 export interface CatalogProject {
   source: 'modrinth' | 'curseforge';

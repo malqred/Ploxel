@@ -4,21 +4,22 @@ import { Slider } from '../../ui/Controls';
 import { Select } from '../../ui/TextField';
 import { Button } from '../../ui/Button';
 import { useToast } from '../../state/toast';
-import { FONTS } from '../../theme/presets';
+import { FONTS, fontById } from '../../theme/presets';
 import { Row, Section } from './parts';
 
 export function TypographySection() {
   const { settings, updateAppearance } = useSettings();
   if (!settings) return null;
   const a = settings.appearance;
-  const font = FONTS.find((f) => f.id === a.fontId) ?? FONTS[0];
+  const font = fontById(a.fontId);
+  const kindLabel = { sans: 'без засечек', serif: 'с засечками', mono: 'моноширинный', hand: 'рукописный' } as const;
 
   return (
-    <Section title="Шрифт и размеры" hint="Все шрифты с поддержкой кириллицы и лицензией, разрешающей встраивание (OFL 1.1).">
+    <Section title="Шрифт и размеры" hint="Все шрифты меняют и русские, и латинские буквы. Лицензия OFL 1.1 разрешает встраивание.">
       <Row label="Шрифт интерфейса" hint={`${font.name} · ${font.license}`}>
         <Select
-          value={a.fontId}
-          options={FONTS.map((f) => ({ value: f.id, label: f.name, hint: f.kind }))}
+          value={font.id}
+          options={FONTS.map((f) => ({ value: f.id, label: f.name, hint: kindLabel[f.kind] }))}
           onChange={(v) => updateAppearance({ fontId: v })}
           width={240}
         />

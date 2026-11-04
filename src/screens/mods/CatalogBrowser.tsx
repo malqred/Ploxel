@@ -26,7 +26,8 @@ const TYPE_LABEL: Record<ContentType, string> = {
   modpack: 'Сборки',
   resourcepack: 'Ресурспаки',
   shader: 'Шейдеры',
-  datapack: 'Датапаки'
+  datapack: 'Датапаки',
+  world: 'Миры'
 };
 
 const CATEGORIES: Record<ContentType, { id: string; label: string }[]> = {
@@ -63,6 +64,16 @@ const CATEGORIES: Record<ContentType, { id: string; label: string }[]> = {
     { id: 'game-mechanics', label: 'Механики игры' },
     { id: 'mobs', label: 'Мобы' },
     { id: 'utility', label: 'Утилиты' }
+  ],
+  // Миры — только на CurseForge, категории — его слаги
+  world: [
+    { id: 'adventure', label: 'Приключения' },
+    { id: 'survival', label: 'Выживание' },
+    { id: 'puzzle', label: 'Головоломки' },
+    { id: 'parkour', label: 'Паркур' },
+    { id: 'creation', label: 'Постройки' },
+    { id: 'game-map', label: 'Мини-игры' },
+    { id: 'modded-world', label: 'С модами' }
   ]
 };
 
@@ -100,6 +111,10 @@ export function CatalogBrowser({
   // При смене каталога карточки прошлого не остаются на экране, пока грузится новый:
   // иначе клик по ним открывал бы проект не из того каталога
   useEffect(() => setResults(null), [source]);
+  // Миры есть только на CurseForge
+  useEffect(() => {
+    if (type === 'world' && source === 'modrinth' && cfAvailable) setSource('curseforge');
+  }, [type, source, cfAvailable]);
   const [loading, setLoading] = useState(false);
   const [allVersions, setAllVersions] = useState<string[]>([]);
   const requestId = useRef(0);
@@ -110,7 +125,7 @@ export function CatalogBrowser({
   // Что уже стоит в выбранной сборке — на карточке вместо «Скачать» будет «Установлено»
   useEffect(() => {
     setInstalledIds(new Set());
-    if (mode !== 'instance' || !instance) return;
+    if (mode !== 'instance' || !instance || type === 'world') return;
     const ids = (list: { projectId?: string }[]) => setInstalledIds(new Set(list.map((m) => m.projectId).filter(Boolean) as string[]));
     if (type === 'datapack') {
       if (world) void api.invoke<DatapackInfo[]>('datapacks:list', instance.id, world).then(ids).catch(() => undefined);
@@ -142,6 +157,13 @@ export function CatalogBrowser({
         setInstalledIds((cur) => new Set(cur).add(project.id));
         onInstalled?.();
         toast('success', `${project.title} установлен`, 'Датапак включится при следующем входе в мир.');
+        return;
+      }
+      // Мир распаковывается в saves сборки
+      if (type === 'world' && mode === 'instance' && instance) {
+        await api.invoke('worlds:installFromCatalog', instance.id, project.source, project.id, { name: project.title });
+        onInstalled?.();
+        toast('success', `${project.title} добавлен`, `Мир появится в списке миров сборки «${instance.name}».`);
         return;
       }
       if (mode === 'instance' && instance) {
@@ -195,7 +217,7 @@ export function CatalogBrowser({
 
   useEffect(() => {
     if (mode === 'instance' && instance) {
-      setGameVersion(instance.gameVersion);
+      setGameVersion(type === 'world' ? '' : instance.gameVersion);
       setLoader(instance.loader.kind === 'vanilla' ? '' : instance.loader.kind);
     } else {
       setGameVersion('');
@@ -261,7 +283,13 @@ export function CatalogBrowser({
     <div className="catalog">
       <div className="row wrap" style={{ gap: 10 }}>
         <div className="segmented" aria-label="Источник">
-          <button className="tab" aria-selected={source === 'modrinth'} onClick={() => setSource('modrinth')}>
+          <button
+            className="tab"
+            aria-selected={source === 'modrinth'}
+            disabled={type === 'world'}
+            title={type === 'world' ? 'На Modrinth нет миров — они есть только на CurseForge' : undefined}
+            onClick={() => setSource('modrinth')}
+          >
             Modrinth
           </button>
           <button
@@ -278,6 +306,8 @@ export function CatalogBrowser({
           value={type}
           onChange={(t) => {
             setType(t);
+            // Карты обычно помечены одной версией игры — для миров фильтр версии сбрасываем
+            if (t === 'world') setGameVersion('');
             setCategory('');
             setSort('relevance');
           }}
@@ -330,7 +360,9 @@ export function CatalogBrowser({
 
       {mode === 'instance' && instance && (
         <p className="tiny muted">
-          {type === 'datapack'
+          {type === 'world'
+            ? `Миры с CurseForge. «Скачать» добавляет мир в сборку «${instance.name}».`
+            : type === 'datapack'
             ? world
               ? `Датапаки для Minecraft ${instance.gameVersion}. «Скачать» ставит датапак в мир «${world}».`
               : `Датапаки для Minecraft ${instance.gameVersion}. Датапак ставится в конкретный мир — его выберете на странице датапака.`
@@ -353,8 +385,12 @@ export function CatalogBrowser({
         <div className="panel">
           <EmptyState
             icon={<Search size={24} />}
-            title="Ничего не найдено"
-            hint="Попробуйте изменить запрос, версию игры или загрузчик."
+            title={type === 'world' && source === 'modrinth' ? 'Миры есть только на CurseForge' : 'Ничего не найдено'}
+            hint={
+              type === 'world' && source === 'modrinth'
+                ? 'Каталог CurseForge недоступен: в config.json не задан ключ CurseForge'
+                : 'Попробуйте изменить запрос, версию игры или загрузчик.'
+            }
           />
         </div>
       ) : (

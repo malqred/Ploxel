@@ -52,6 +52,7 @@ import {
 import type { CrashCause } from '../shared/types';
 import { listWorlds, importWorld, exportWorld, worldFolder } from './services/worlds';
 import * as datapacks from './services/datapacks';
+import { installWorldFromCatalog } from './services/world-catalog';
 import * as configs from './services/configs';
 import { deleteSharedLog, prepareSharedLog, uploadLog } from './services/log-share';
 import { clearBackgrounds, pickBackground } from './services/local-media';
@@ -702,6 +703,9 @@ export function registerIpc(): void {
     return importWorld(instanceId, res.filePaths[0]);
   });
   handle('worlds:importFile', (instanceId: string, file: string) => importWorld(instanceId, file));
+  handle('worlds:installFromCatalog', (instanceId: string, source: 'modrinth' | 'curseforge', projectId: string, opts?: { versionId?: string; name?: string }) =>
+    installWorldFromCatalog(instanceId, source, projectId, opts)
+  );
   handle('worlds:export', async (instanceId: string, folder: string, target?: string) => {
     const dest =
       target ??

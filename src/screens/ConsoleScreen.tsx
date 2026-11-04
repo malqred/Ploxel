@@ -13,6 +13,11 @@ import type { Account, Instance, LogLine, SharedLog } from '../../shared/types';
 
 type LevelFilter = 'all' | 'error' | 'warn';
 
+/** Строка консоли с постоянным номером: по нему React узнаёт строку при сдвиге буфера. */
+type ConsoleLine = LogLine & { seq: number };
+let lineSeq = 0;
+const numbered = (list: LogLine[]): ConsoleLine[] => list.map((l) => ({ ...l, seq: ++lineSeq }));
+
 function level(line: LogLine): 'error' | 'warn' | 'debug' | 'info' {
   if (/\b(ERROR|FATAL|SEVERE)\b/.test(line.line) || /Exception|Error:/i.test(line.line)) return 'error';
   if (/\bWARN(ING)?\b/i.test(line.line)) return 'warn';
@@ -27,7 +32,7 @@ function formatTime(ts: number): string {
 export function ConsoleScreen() {
   const [instances, setInstances] = useState<Instance[]>([]);
   const [instanceId, setInstanceId] = useState('');
-  const [lines, setLines] = useState<LogLine[]>([]);
+  const [lines, setLines] = useState<ConsoleLine[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<LevelFilter>('all');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -61,11 +66,13 @@ export function ConsoleScreen() {
     if (!instanceId) return;
     setLines([]);
     setCrashed(false);
-    void api.invoke<LogLine[]>('logs:get', instanceId).then(setLines);
+    void api.invoke<LogLine[]>('logs:get', instanceId).then((list) => setLines(numbered(list)));
     void api.invoke<string[]>('launch:running').then((list) => setRunning(list.includes(instanceId)));
     const offLog = api.on('game:logs', (payload) => {
       const p = payload as { instanceId: string; lines: LogLine[] };
-      if (p.instanceId === instanceId) setLines((prev) => prev.concat(p.lines).slice(-4000));
+      // Ключ строки — её номер, а не место в списке: иначе при каждой пачке лога
+      // (буфер сдвигается) React пересоздавал все 3000 строк на экране
+      if (p.instanceId === instanceId) setLines((prev) => prev.concat(numbered(p.lines)).slice(-4000));
     });
     const offStart = api.on('game:started', (p) => {
       if ((p as { instanceId: string }).instanceId === instanceId) setRunning(true);
@@ -289,8 +296,8 @@ export function ConsoleScreen() {
             </div>
           ) : (
             <div className="console__log" ref={logRef} onScroll={onScroll}>
-              {shown.map((l, i) => (
-                <div className="log-line" data-level={level(l)} key={`${l.ts}-${i}`}>
+              {shown.map((l) => (
+                <div className="log-line" data-level={level(l)} key={l.seq}>
                   <span className="log-line__time">{formatTime(l.ts)}</span>
                   <span className="log-line__text">{highlight(l.line)}</span>
                 </div>

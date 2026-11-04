@@ -35,15 +35,26 @@ export function DownloadsIndicator() {
 
   useEffect(() => {
     void api.invoke<DownloadTask[]>('downloads:list').then(setTasks);
-    const off = api.on('downloads:changed', (list) => setTasks(list as DownloadTask[]));
-    const timer = setInterval(() => {
-      void api.invoke<Stats>('downloads:stats').then(setStats).catch(() => undefined);
-    }, 1000);
-    return () => {
-      off();
-      clearInterval(timer);
-    };
+    return api.on('downloads:changed', (list) => setTasks(list as DownloadTask[]));
   }, []);
+
+  // Скорость и остаток спрашиваем раз в секунду только пока что-то качается: раньше
+  // опрос и перерисовка шли постоянно, даже когда загрузок не было
+  const busy = tasks.some((t) => t.status === 'running' || t.status === 'queued');
+  useEffect(() => {
+    if (!busy) {
+      setStats(null);
+      return;
+    }
+    const poll = () =>
+      void api
+        .invoke<Stats>('downloads:stats')
+        .then((next) => setStats((cur) => (cur && JSON.stringify(cur) === JSON.stringify(next) ? cur : next)))
+        .catch(() => undefined);
+    poll();
+    const timer = setInterval(poll, 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
 
   const active = tasks.filter((t) => t.status === 'running' || t.status === 'queued' || t.status === 'paused');
 
@@ -105,8 +116,7 @@ export function DownloadsIndicator() {
           <>
             <Button
               variant="secondary"
-              size="sm"
-              icon={<Settings2 size={14} />}
+              icon={<Settings2 size={15} />}
               onClick={() => {
                 setOpen(false);
                 window.location.hash = '/settings?tab=downloads';

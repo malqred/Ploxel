@@ -103,7 +103,7 @@ export function GeneralTab() {
           label="Статус в Discord"
           hint={
             info?.config.discordClientId
-              ? 'Пока вы играете, в профиле Discord видно: «Играет в Ploxel», название сборки и версия игры. Discord должен быть запущен на этом компьютере.'
+              ? 'Пока вы играете, в профиле Discord видно «Играет в Ploxel», версию игры и загрузчик. Discord должен быть запущен на этом компьютере.'
               : 'Недоступно: в config.json не задан discordClientId — ID приложения Discord.'
           }
         >
