@@ -139,6 +139,7 @@ function enabled(): boolean {
 async function refresh(): Promise<void> {
   const last = [...playing.entries()].pop();
   if (!last || !enabled()) {
+    if (process.env.PLOXEL_TRACE_DISCORD) console.log('[discord] статус снят');
     client?.setActivity(null);
     client?.close();
     client = null;
@@ -156,6 +157,7 @@ async function refresh(): Promise<void> {
       appVersion: app.getVersion()
     })
   );
+  if (process.env.PLOXEL_TRACE_DISCORD) console.log('[discord] статус поставлен:', instance.gameVersion, instance.loader.kind);
 }
 
 // Обновления по очереди: два быстрых события не откроют два подключения

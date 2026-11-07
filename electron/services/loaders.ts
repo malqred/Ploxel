@@ -6,7 +6,11 @@ import { data } from './paths';
 import { fetchJson, downloadMany } from './downloader';
 import { versionsRoot, readLocalVersion, resolveVersion } from './versions';
 import { ensureJava } from './java';
+import { openZipLite } from '../core/zip-lite';
 import type { LoaderKind, LoaderSpec } from '../../shared/types';
+
+/** Ход установки загрузчика для карточки загрузок: этап и счётчик. */
+export type LoaderProgress = (phase: string, done: number, total: number) => void;
 
 /** fetch с тайм-аутом: зависшее соединение не должно держать вход, загрузку или проверку бесконечно. */
 const fetchT = (url: string, init: RequestInit = {}) => fetch(url, { signal: AbortSignal.timeout(20000), ...init });
@@ -110,7 +114,8 @@ export async function installLoader(
   gameVersion: string,
   kind: LoaderKind,
   loaderVersion: string,
-  onLog?: (line: string) => void
+  onLog?: (line: string) => void,
+  onProgress?: LoaderProgress
 ): Promise<InstalledLoader> {
   if (kind === 'vanilla') return { versionId: gameVersion, loader: { kind } };
 
@@ -130,16 +135,37 @@ export async function installLoader(
   const versionId = isNeo
     ? `neoforge-${loaderVersion}`
     : `${gameVersion}-forge-${loaderVersion}`;
-  if (readLocalVersion(versionId)) {
+  // Файл версии установщик пишет в самом начале — прерванная установка его тоже оставляет.
+  // Готовой считаем только законченную установку.
+  if (isLoaderInstalled(versionId)) {
     return { versionId, loader: { kind, version: loaderVersion } };
   }
+  const name = isNeo ? 'NeoForge' : 'Forge';
+  // Названия этапов — целыми строками: так их переводит словарь интерфейса
+  const phase = isNeo
+    ? { installer: 'Установка NeoForge — установщик', libs: 'Установка NeoForge — библиотеки', process: 'Установка NeoForge — обработка файлов' }
+    : { installer: 'Установка Forge — установщик', libs: 'Установка Forge — библиотеки', process: 'Установка Forge — обработка файлов' };
 
   const installerUrl = isNeo
     ? `https://maven.neoforged.net/releases/net/neoforged/neoforge/${loaderVersion}/neoforge-${loaderVersion}-installer.jar`
     : `${FORGE_MAVEN}/${gameVersion}-${loaderVersion}/forge-${gameVersion}-${loaderVersion}-installer.jar`;
   const installer = data('installers', `${kind}-${loaderVersion}.jar`);
   onLog?.(`Скачивание установщика ${kind}…`);
+  onProgress?.(phase.installer, 0, 1);
   await viaLoaderServer(kind, () => downloadMany([{ url: installerUrl, dest: installer }], { onProgress: () => {} }));
+
+  // Библиотеки качаем сами, параллельно и с повторами. Установщик Forge берёт их по одной
+  // и сначала идёт на зеркало, которое часто не отвечает: 40 тайм-аутов — минуты простоя.
+  // Готовые файлы с верной контрольной суммой установщик пропускает.
+  const plan = readInstallerPlan(installer);
+  const libs = plan.libraries.filter((l) => !fs.existsSync(data('libraries', l.path)));
+  if (libs.length) {
+    onLog?.(`Библиотеки ${name}: ${libs.length}`);
+    await downloadMany(
+      libs.map((l) => ({ url: l.url, dest: data('libraries', l.path), sha1: l.sha1, size: l.size })),
+      { onProgress: (done, total) => onProgress?.(phase.libs, done, total) }
+    ).catch((e) => onLog?.(`Не все библиотеки скачались заранее — установщик докачает сам: ${e instanceof Error ? e.message : e}`));
+  }
 
   // Java — та, что нужна самой версии игры (Java 25 ломает установщик Forge 1.20.1,
   // Java 17 — Forge 1.12.2); если подходящей нет, скачиваем официальную
@@ -156,10 +182,20 @@ export async function installLoader(
   }
 
   onLog?.(`Запуск установщика ${kind}…`);
-  await runInstaller(java.path, installer, installRoot, onLog);
+  // Обработка файлов игры: каждый шаг установщик отделяет строкой из «=»
+  let step = 0;
+  onProgress?.(phase.process, 0, plan.processors);
+  await runInstaller(java.path, installer, installRoot, (line) => {
+    onLog?.(line);
+    if (/^={20,}$/.test(line) && plan.processors > 0) {
+      step = Math.min(step + 1, plan.processors);
+      onProgress?.(phase.process, step, plan.processors);
+    }
+  });
   if (!readLocalVersion(versionId)) {
     throw new Error(`Установщик ${kind} завершился, но версия ${versionId} не появилась`);
   }
+  await fsp.writeFile(completeMarker(versionId), new Date().toISOString(), 'utf8').catch(() => undefined);
   return { versionId, loader: { kind, version: loaderVersion } };
 }
 
@@ -211,7 +247,66 @@ export async function ensureVersionJson(versionId: string): Promise<void> {
   await resolveVersion(versionId);
 }
 export function isLoaderInstalled(versionId: string): boolean {
-  return fs.existsSync(path.join(versionsRoot(), versionId, `${versionId}.json`));
+  if (!fs.existsSync(path.join(versionsRoot(), versionId, `${versionId}.json`))) return false;
+  return isForgeFamily(versionId) ? isForgeInstallComplete(versionId) : true;
+}
+
+const isForgeFamily = (versionId: string) => /-forge-|^neoforge-/.test(versionId);
+const completeMarker = (versionId: string) => path.join(versionsRoot(), versionId, '.ploxel-complete');
+
+/**
+ * Forge/NeoForge установлен до конца: есть наша отметка, а для установок из прошлых
+ * версий лаунчера — собранный установщиком client.jar (его делает последний шаг).
+ * Forge до 1.13 шагов обработки не имеет — достаточно файла версии.
+ */
+export function isForgeInstallComplete(versionId: string): boolean {
+  if (fs.existsSync(completeMarker(versionId))) return true;
+  const neo = versionId.match(/^neoforge-(.+)$/);
+  if (neo) return fs.existsSync(data('libraries', 'net', 'neoforged', 'neoforge', neo[1], `neoforge-${neo[1]}-client.jar`));
+  const forge = versionId.match(/^(.+)-forge-(.+)$/);
+  if (!forge) return true;
+  const [, mc, v] = forge;
+  const minor = Number(mc.split('.')[1] ?? 0);
+  if (mc.startsWith('1.') && minor < 13) return true;
+  return fs.existsSync(data('libraries', 'net', 'minecraftforge', 'forge', `${mc}-${v}`, `forge-${mc}-${v}-client.jar`));
+}
+
+interface InstallerLib {
+  path: string;
+  url: string;
+  sha1?: string;
+  size?: number;
+}
+
+/**
+ * Что установщик Forge/NeoForge будет качать и сколько шагов обработки сделает:
+ * библиотеки из install_profile.json и version.json внутри установщика.
+ */
+export function readInstallerPlan(installerJar: string): { libraries: InstallerLib[]; processors: number } {
+  try {
+    const zip = openZipLite(installerJar);
+    try {
+      const read = (name: string) => {
+        const entry = zip.entries.find((e) => e.name === name);
+        return entry ? JSON.parse(zip.read(entry).toString('utf8')) : null;
+      };
+      const profile = read('install_profile.json') ?? {};
+      const version = read('version.json') ?? {};
+      const libs = new Map<string, InstallerLib>();
+      for (const lib of [...(profile.libraries ?? []), ...(version.libraries ?? [])]) {
+        const a = lib?.downloads?.artifact;
+        // Без адреса — файл лежит внутри установщика, качать нечего
+        if (!a?.path || !a.url) continue;
+        libs.set(a.path, { path: a.path, url: a.url, sha1: a.sha1, size: a.size || undefined });
+      }
+      const processors = (profile.processors ?? []).filter((p: { sides?: string[] }) => !p.sides || p.sides.includes('client')).length;
+      return { libraries: [...libs.values()], processors };
+    } finally {
+      zip.close();
+    }
+  } catch {
+    return { libraries: [], processors: 0 };
+  }
 }
 /**
  * Загрузчик сборки перед запуском: если его файлов нет (импорт из другого
@@ -222,7 +317,8 @@ export function isLoaderInstalled(versionId: string): boolean {
 export async function ensureLoader(
   gameVersion: string,
   loader: LoaderSpec,
-  onLog?: (line: string) => void
+  onLog?: (line: string) => void,
+  onProgress?: LoaderProgress
 ): Promise<{ versionId: string; loader: LoaderSpec; changed: boolean }> {
   if (loader.kind === 'vanilla') return { versionId: gameVersion, loader, changed: false };
   let version = loader.version;
@@ -238,6 +334,6 @@ export async function ensureLoader(
   const versionId = await versionIdFor(gameVersion, spec);
   if (isLoaderInstalled(versionId)) return { versionId, loader: spec, changed: version !== loader.version };
   onLog?.(`Установка ${loader.kind} ${version}…`);
-  const installed = await installLoader(gameVersion, loader.kind, version, onLog);
+  const installed = await installLoader(gameVersion, loader.kind, version, onLog, onProgress);
   return { versionId: installed.versionId, loader: spec, changed: version !== loader.version };
 }

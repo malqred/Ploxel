@@ -3,7 +3,7 @@ import { trackScreenshots } from './screenshots';
 import { ensureAuthlibInjector } from './authlib';
 import { elyJavaAgent } from '../core/elyby';
 import fs from 'node:fs';
-import { BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { data, instanceDir } from './paths';
 import { readInstance, updateInstance } from './instances';
 import { recordSession } from './playtime';
@@ -54,6 +54,12 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
   const instance = readInstance(instanceId);
   if (!instance) throw new Error('Сборка не найдена');
   if (running.has(instanceId)) throw new Error('Эта сборка уже запущена');
+  // Сборка-сервер: запускается её start.bat в своём окне консоли, а не игра
+  if (instance.server) {
+    const { startServer } = await import('./server-build');
+    startServer(instance);
+    return {};
+  }
 
   const account = activeAccount();
   if (!account) throw new Error('Сначала войдите в аккаунт или создайте офлайн-профиль в Настройках');
@@ -77,7 +83,12 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
   try {
     const token = await getMinecraftToken(account.id);
     updateTask(taskId, { detail: 'Проверка загрузчика' });
-    const prepared = await ensureLoader(instance.gameVersion, instance.loader, (line) => log(line));
+    const prepared = await ensureLoader(
+      instance.gameVersion,
+      instance.loader,
+      (line) => log(line),
+      (phase, done, total) => progress(phase, done, total)
+    );
     if (prepared.changed) await updateInstance(instance.id, { loader: prepared.loader });
     const versionId = prepared.versionId;
     log(`Версия: ${versionId}`);
@@ -212,6 +223,7 @@ export async function launchInstance(instanceId: string, options: LaunchOptions 
       // Разбор падения читает ploxel-latest.log сразу — хвост лога должен быть уже в файле
       flushLogFiles(instanceId);
       emit('game:exited', { instanceId, code, crashed });
+      afterGameExit(crashed);
       const current = readInstance(instanceId);
       if (current?.lastPlayedAt) {
         const minutes = Math.max(1, Math.round((Date.now() - new Date(current.lastPlayedAt).getTime()) / 60000));
@@ -245,11 +257,42 @@ function windowArgs(win: GameWindow | undefined): { width?: number; height?: num
   return win.width > 0 && win.height > 0 ? { width: Math.round(win.width), height: Math.round(win.height) } : {};
 }
 
+/** Окно спрятано на время игры (настройка «Закрыть»). */
+let hiddenForGame = false;
+
+/**
+ * «Закрыть» при запуске игры: окно прячется целиком (и с панели задач), а лаунчер
+ * остаётся работать в фоне. Раньше окно закрывалось вместе с приложением, и Windows
+ * завершала только что запущенную Java — игра не стартовала. Фоновый процесс нужен ещё
+ * для статуса в Discord, учёта времени игры и разбора падения.
+ */
 function applyWindowBehavior(behavior: 'keep' | 'minimize' | 'close') {
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) return;
   if (behavior === 'minimize') win.minimize();
-  if (behavior === 'close') win.close();
+  if (behavior === 'close') {
+    hiddenForGame = true;
+    win.hide();
+  }
+}
+
+/** Игра вышла: если окно было спрятано — упала → показать разбор, иначе лаунчер закрывается. */
+function afterGameExit(crashed: boolean) {
+  if (!hiddenForGame || running.size > 0) return;
+  hiddenForGame = false;
+  const win = BrowserWindow.getAllWindows()[0];
+  if (crashed && win && !win.isDestroyed()) {
+    win.show();
+    win.focus();
+    return;
+  }
+  // Дать статусу Discord и записи времени игры завершиться
+  setTimeout(() => app.quit(), 1500);
+}
+
+/** Лаунчер открыли снова, пока окно спрятано: дальше он не закроется сам после игры. */
+export function cancelHiddenForGame() {
+  hiddenForGame = false;
 }
 
 export async function stopInstance(instanceId: string): Promise<void> {

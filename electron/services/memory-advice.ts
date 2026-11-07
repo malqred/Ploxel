@@ -5,6 +5,7 @@ import { readInstance } from './instances';
 import { contentDir, scanMods } from './mods';
 import { getModrinthProjectBriefs } from './modrinth';
 import { sha1File } from './downloader';
+import { loadSettings } from './settings';
 import { recommendMemory, type MemoryAdvice } from '../../shared/memory-advice';
 
 /** fetch с тайм-аутом: зависшее соединение не должно держать вход, загрузку или проверку бесконечно. */
@@ -39,6 +40,7 @@ async function projectsByHash(hashes: string[]): Promise<Map<string, string>> {
 
 /** Рекомендуемая память для сборки: смотрит включённые моды, шейдеры и ресурспаки. */
 export async function memoryAdviceFor(instanceId: string): Promise<MemoryAdvice | null> {
+  const adviceOpts = loadSettings().general.memoryAdvice ?? { total: true, free: true };
   const instance = readInstance(instanceId);
   if (!instance) return null;
   const all = scanMods(instanceId).filter((m) => m.enabled);
@@ -88,6 +90,8 @@ export async function memoryAdviceFor(instanceId: string): Promise<MemoryAdvice 
     }),
     shaderPacks: all.filter((m) => m.kind === 'shader').length,
     resourcePackSizesMb: all.filter((m) => m.kind === 'resourcepack').map((m) => sizeMb(path.join(packDir, m.fileName))),
-    totalGb: os.totalmem() / 1073741824
+    // Галочки в настройках сборки: снятая — этот пункт не учитывается
+    totalGb: adviceOpts.total ? os.totalmem() / 1073741824 : undefined,
+    freeGb: adviceOpts.free ? os.freemem() / 1073741824 : undefined
   });
 }

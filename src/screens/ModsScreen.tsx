@@ -28,7 +28,9 @@ export function ModsScreen() {
     return {
       query: params.get('q') ?? '',
       type: (type && TYPES.includes(type as ContentType) ? type : 'mod') as ContentType,
-      world: params.get('world') ?? undefined
+      world: params.get('world') ?? undefined,
+      /** «modrinth:AANobbMI» — сразу открыть страницу проекта (с главной) */
+      project: params.get('project') ?? undefined
     };
   }, []);
 
@@ -41,6 +43,13 @@ export function ModsScreen() {
       setTargetId(chosen?.id ?? BROWSE);
     });
     void api.invoke<boolean>('ai:available').then(setAiOn);
+    if (link.project) {
+      const [source, id] = link.project.split(':');
+      void api
+        .invoke<CatalogProject | null>('catalog:project', source, id)
+        .then((p) => p && setOpenProject({ project: p, kind: p.projectType as ContentType }))
+        .catch(() => undefined);
+    }
   }, []);
 
   const closeAi = useCallback(() => setAiOpen(false), []);

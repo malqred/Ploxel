@@ -259,7 +259,8 @@ function normalizeFile(f: CfFile, projectId: string): CatalogVersion {
         required: d.relationType === 3,
         type: d.relationType === 1 ? 'embedded' : d.relationType === 2 ? 'optional' : d.relationType === 5 ? 'incompatible' : 'required'
       })),
-    datePublished: f.fileDate
+    datePublished: f.fileDate,
+    blockedFile: f.downloadUrl ? undefined : { fileName: f.fileName, size: f.fileLength, sha1 }
   };
 }
 
@@ -406,8 +407,25 @@ export async function curseForgeCategoryId(projectType: CatalogSearchQuery['proj
 /** Названия проектов пачкой — для списка зависимостей. */
 export async function getCurseForgeMods(ids: string[]): Promise<CatalogProject[]> {
   if (!ids.length) return [];
-  const json = await post<{ data: CfMod[] }>('/mods', { modIds: ids.map(Number), filterPcOnly: true });
-  return json.data.map((m) => normalizeMod(m, 'mod'));
+  const out: CatalogProject[] = [];
+  // Пачками и с повтором: при обрыве соединения модпак оставался без иконок и названий модов
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100).map(Number);
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const json = await post<{ data: CfMod[] }>('/mods', { modIds: chunk, filterPcOnly: true });
+        out.push(...json.data.map((m) => normalizeMod(m, 'mod')));
+        last = null;
+        break;
+      } catch (e) {
+        last = e;
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      }
+    }
+    if (last) throw last;
+  }
+  return out;
 }
 
 /** Список изменений файла CurseForge (HTML от автора). Пусто — автор не написал. */

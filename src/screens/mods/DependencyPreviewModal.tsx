@@ -5,6 +5,7 @@ import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Controls';
 import { Modal } from '../../ui/Overlay';
 import { useToast } from '../../state/toast';
+import { offerManualDownload } from '../../ui/ManualDownloads';
 import { fmtBytes } from '../../i18n';
 import type { DependencyItem, DependencyPlan, Instance } from '../../../shared/types';
 
@@ -45,9 +46,10 @@ export function DependencyPreviewModal({
         setPlan(p);
         setSelected(new Set(p.items.filter((i) => i.selected).map((i) => i.key)));
       })
-      .catch((e) => {
-        toast('error', 'Не удалось построить план', e instanceof Error ? e.message : String(e));
+      .catch(async (e) => {
         onClose();
+        if (await offerManualDownload(e, instance.id, source, projectId, 'mod', versionId)) return;
+        toast('error', 'Не удалось построить план', e instanceof Error ? e.message : String(e));
       })
       .finally(() => setLoading(false));
   }, [open, instance?.id, source, projectId, versionId]);
@@ -89,6 +91,7 @@ export function DependencyPreviewModal({
       );
       onInstalled();
     } catch (e) {
+      if (await offerManualDownload(e, instance.id, source, projectId, 'mod', versionId)) return;
       toast('error', 'Установка не удалась', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);

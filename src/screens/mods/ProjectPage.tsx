@@ -13,7 +13,9 @@ import { useToast } from '../../state/toast';
 import { fmtBytes, fmtDate, fmtNumber } from '../../i18n';
 import { sortGameVersions, summarizeGameVersions } from '../../../shared/game-versions';
 import { newInstanceTarget } from '../../../shared/instance-target';
-import type { CatalogProject, CatalogProjectType, CatalogVersion, DatapackInfo, Instance, InstalledMod, WorldInfo } from '../../../shared/types';
+import type { CatalogProject, CatalogProjectType, CatalogVersion, DatapackInfo, Instance, InstalledMod, WorldInfo, WorldInstallResult } from '../../../shared/types';
+import { worldInstallToast } from './world-install';
+import { offerManualDownload } from '../../ui/ManualDownloads';
 
 const KIND_BY_TYPE = {
   mod: 'mod',
@@ -191,9 +193,10 @@ export function ProjectPage({
     }
     setTargetId(id);
     const inst = localInstances.find((i) => i.id === id);
+    // Версию игры и загрузчик пользователь уже выбрал выше — подставляем их из сборки, только если пусто
     if (inst) {
-      if (kind !== 'world') setFilterVersion(inst.gameVersion);
-      setFilterLoader(inst.loader.kind === 'vanilla' ? '' : inst.loader.kind);
+      if (kind !== 'world' && !filterVersion) setFilterVersion(inst.gameVersion);
+      if (!filterLoader) setFilterLoader(inst.loader.kind === 'vanilla' ? '' : inst.loader.kind);
     }
   };
 
@@ -250,6 +253,29 @@ export function ProjectPage({
   }, [full.gameVersions, versions, target?.gameVersion, filterVersion, snapshots]);
 
   const install = async (versionId?: string) => {
+    // Модпак всегда ставится своей новой сборкой — выбирать, куда ставить, не нужно
+    if (kind === 'modpack') {
+      const targetVersion = versionId ?? chosen;
+      if (!targetVersion) return;
+      setBusy(true);
+      try {
+        const created = await api.invoke<Instance>('modpack:installFromProject', project.source, project.id, targetVersion);
+        const manual = await api.invoke<number>('modpack:manualMods', created.id).catch(() => 0);
+        if (manual > 0) {
+          toast(
+            'warning',
+            `Модпаку нужны моды, которые есть только на CurseForge: ${manual}`,
+            'При первом запуске модпак сам откроет окно со ссылками — скачайте файлы и положите в папку mods сборки.'
+          );
+        } else toast('success', 'Сборка создана', created.name);
+        window.location.hash = `/library?instance=${created.id}`;
+      } catch (e) {
+        toast('error', 'Установка не удалась', e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (!target) {
       toast('warning', 'Выберите сборку', 'Установка идёт в конкретную сборку.');
       return;
@@ -276,23 +302,10 @@ export function ProjectPage({
         return;
       }
       if (kind === 'world') {
-        await api.invoke<WorldInfo>('worlds:installFromCatalog', target.id, project.source, project.id, { versionId: targetVersion, name: full.title });
+        const res = await api.invoke<WorldInstallResult>('worlds:installFromCatalog', target.id, project.source, project.id, { versionId: targetVersion, name: full.title });
         setChosen(targetVersion);
         onInstalled();
-        toast('success', `${full.title} добавлен`, `Мир появится в списке миров сборки «${target.name}».`);
-        return;
-      }
-      if (kind === 'modpack') {
-        const created = await api.invoke<Instance>('modpack:installFromProject', project.source, project.id, targetVersion);
-        const manual = await api.invoke<number>('modpack:manualMods', created.id).catch(() => 0);
-        if (manual > 0) {
-          toast(
-            'warning',
-            `Модпаку нужны моды, которые есть только на CurseForge: ${manual}`,
-            'При первом запуске модпак сам откроет окно со ссылками — скачайте файлы и положите в папку mods сборки.'
-          );
-        } else toast('success', 'Сборка создана', created.name);
-        window.location.hash = `/library?instance=${created.id}`;
+        worldInstallToast(res, full.title, target.name, toast);
         return;
       }
       const res = await api.invoke<{ installed: InstalledMod; dependencies: string[] }>(
@@ -312,6 +325,8 @@ export function ProjectPage({
         res.dependencies.length ? `Докачано зависимостей: ${res.dependencies.length}` : 'Можно включать в игре.'
       );
     } catch (e) {
+      const manualKind = kind === 'resourcepack' || kind === 'shader' ? kind : 'mod';
+      if (await offerManualDownload(e, target.id, project.source, project.id, manualKind, targetVersion)) return;
       toast('error', 'Установка не удалась', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -513,57 +528,6 @@ export function ProjectPage({
         <aside className="project-side panel">
           <h3 className="panel__title">Установка</h3>
 
-          <span className="field__label">Куда установить</span>
-          <Select
-            value={targetId}
-            options={[
-              ...(canCreate
-                ? [
-                    {
-                      value: CREATE_TARGET,
-                      label: 'Создать новую сборку',
-                      hint: full.title,
-                      icon: <Plus size={14} />
-                    }
-                  ]
-                : []),
-              ...localInstances.map((i) => ({ value: i.id, label: i.name, hint: i.gameVersion }))
-            ]}
-            onChange={chooseTarget}
-            placeholder={
-              canCreate
-                ? creatingTarget
-                  ? 'Создаём сборку…'
-                  : 'Создать новую или выбрать существующую'
-                : localInstances.length
-                  ? 'Выберите сборку'
-                  : 'Сборок нет'
-            }
-            disabled={creatingTarget}
-            width="100%"
-            skipLabels
-          />
-
-          {isDatapack && target && (
-            <>
-              <span className="field__label">Мир</span>
-              {worlds.length ? (
-                <Select
-                  value={worldId}
-                  options={worlds.map((w) => ({ value: w.folder, label: w.name, hint: w.gameVersion }))}
-                  onChange={setWorldId}
-                  width="100%"
-                />
-              ) : (
-                <div className="notice">
-                  <div>В этой сборке пока нет миров. Создайте мир в игре — датапак ставится в конкретный мир.</div>
-                </div>
-              )}
-            </>
-          )}
-
-          <div className="divider" />
-
           <span className="field__label">Версия игры</span>
           <Select
             value={filterVersion}
@@ -605,6 +569,62 @@ export function ProjectPage({
             </span>
           )}
 
+          {kind !== 'modpack' && <div className="divider" />}
+
+          {/* Куда ставить — после версии игры и файла: сначала «что», потом «куда».
+              Модпак всегда создаёт свою сборку — у него этого выбора нет */}
+          {kind !== 'modpack' && <span className="field__label">Куда установить</span>}
+          {kind !== 'modpack' && (
+          <Select
+            value={targetId}
+            options={[
+              ...(canCreate
+                ? [
+                    {
+                      value: CREATE_TARGET,
+                      label: 'Создать новую сборку',
+                      hint: full.title,
+                      icon: <Plus size={14} />
+                    }
+                  ]
+                : []),
+              ...localInstances.map((i) => ({ value: i.id, label: i.name, hint: i.gameVersion }))
+            ]}
+            onChange={chooseTarget}
+            placeholder={
+              canCreate
+                ? creatingTarget
+                  ? 'Создаём сборку…'
+                  : 'Создать новую или выбрать существующую'
+                : localInstances.length
+                  ? 'Выберите сборку'
+                  : 'Сборок нет'
+            }
+            disabled={creatingTarget}
+            width="100%"
+            skipLabels
+          />
+          )}
+
+          {isDatapack && target && (
+            <>
+              <span className="field__label">Мир</span>
+              {worlds.length ? (
+                <Select
+                  value={worldId}
+                  options={worlds.map((w) => ({ value: w.folder, label: w.name, hint: w.gameVersion }))}
+                  onChange={setWorldId}
+                  width="100%"
+                />
+              ) : (
+                <div className="notice">
+                  <div>В этой сборке пока нет миров. Создайте мир в игре — датапак ставится в конкретный мир.</div>
+                </div>
+              )}
+            </>
+          )}
+
+
           {mismatch && target && (
             <div className="notice">
               <div>{`Файл выбран для ${filterVersion}, а сборка на ${target.gameVersion}. Он может не запуститься.`}</div>
@@ -624,7 +644,7 @@ export function ProjectPage({
               onClick={() => install()}
               loading={busy}
               disabled={
-                !chosen || !target || loading || (kind === 'mod' && target?.loader.kind === 'vanilla') || (isDatapack && !worldId)
+                !chosen || (!target && kind !== 'modpack') || loading || (kind === 'mod' && target?.loader.kind === 'vanilla') || (isDatapack && !worldId)
               }
               block
             >
@@ -638,7 +658,7 @@ export function ProjectPage({
           </span>
           <span className="tiny muted">
             {kind === 'world'
-              ? 'Если миру нужны моды, они указаны на сайте проекта — поставьте их в сборку отдельно.'
+              ? 'Нужные миру моды лаунчер поставит сам — если надо, в новую сборку подходящей версии.'
               : isDatapack
               ? 'Зависимости датапака лаунчер не ставит сам: если они есть, поставьте их отдельно — они указаны на сайте проекта.'
               : 'Помощник при сборке докачает их автоматически.'}

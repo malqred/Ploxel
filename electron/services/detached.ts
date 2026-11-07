@@ -43,3 +43,18 @@ export function launchOutsideApp(file: string, args: string[]): 'wmi' | 'cmd' {
     return 'cmd';
   }
 }
+
+/** То же, но готовой командной строкой — когда нужны свои кавычки (cmd /c start "заголовок" "файл"). */
+export function launchCommandOutsideApp(cmd: string): 'wmi' | 'cmd' {
+  try {
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', wmiCreateScript(cmd)], {
+      windowsHide: true,
+      timeout: 20000,
+      stdio: 'ignore'
+    });
+    return 'wmi';
+  } catch {
+    spawn('cmd.exe', ['/d', '/c', `start "" /b ${cmd}`], { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref();
+    return 'cmd';
+  }
+}

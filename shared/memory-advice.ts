@@ -29,8 +29,10 @@ export interface AdviceInput {
   shaderPacks?: number;
   /** размеры включённых ресурспаков, МБ */
   resourcePackSizesMb?: number[];
-  /** вся память компьютера, ГБ (чтобы не советовать больше, чем есть) */
+  /** вся память компьютера, ГБ (чтобы не советовать больше, чем есть); нет — не учитывается */
   totalGb?: number;
+  /** сколько памяти свободно прямо сейчас, ГБ; нет — не учитывается */
+  freeGb?: number;
 }
 
 export interface AdvicePart {
@@ -51,6 +53,10 @@ export interface MemoryAdvice {
   limitedByPc: boolean;
   /** сколько получилось бы без ограничения компьютера */
   idealGb: number;
+  /** рекомендация урезана тем, что сейчас свободно мало памяти */
+  limitedByFree?: boolean;
+  /** свободно сейчас, ГБ (если учитывалось) */
+  freeGb?: number;
 }
 
 export const GROUP_WEIGHT: Record<ModWeightGroup, number> = {
@@ -239,6 +245,16 @@ export function recommendMemory(input: AdviceInput): MemoryAdvice {
   const ideal = Math.min(16, Math.max(2, Math.round(base + extra)));
   // Системе и другим программам оставляем хотя бы 2–3 ГБ
   const pcLimit = input.totalGb ? Math.max(1, Math.floor(input.totalGb - Math.max(2, input.totalGb * 0.25))) : Infinity;
-  const gb = Math.max(1, Math.min(ideal, pcLimit));
-  return { gb, parts, limitedByPc: gb < ideal, idealGb: ideal };
+  // Сейчас занято много (браузер, другие программы) — не советуем больше, чем свободно,
+  // оставляя системе запас в 1 ГБ; но не меньше 2 ГБ, иначе игра не запустится
+  const freeLimit = input.freeGb !== undefined ? Math.max(2, Math.floor(input.freeGb - 1)) : Infinity;
+  const gb = Math.max(1, Math.min(ideal, pcLimit, freeLimit));
+  return {
+    gb,
+    parts,
+    limitedByPc: gb < ideal && pcLimit <= freeLimit,
+    limitedByFree: gb < ideal && freeLimit < pcLimit,
+    idealGb: ideal,
+    freeGb: input.freeGb !== undefined ? Math.round(input.freeGb * 10) / 10 : undefined
+  };
 }

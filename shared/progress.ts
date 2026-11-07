@@ -21,6 +21,10 @@ export function modpackPercent(phase: string, done: number, total: number): numb
 export function launchPercent(phase: string, done: number, total: number): number {
   const part = total > 0 ? Math.min(1, Math.max(0, done / total)) : 0;
   const span = (from: number, to: number) => Math.round(from + (to - from) * part);
+  // Первый запуск Forge/NeoForge: установка загрузчика идёт до Java и файлов игры
+  if (/^Установка (Forge|NeoForge) — установщик$/.test(phase)) return 1;
+  if (/^Установка (Forge|NeoForge) — библиотеки$/.test(phase)) return span(1, 10);
+  if (/^Установка (Forge|NeoForge) — обработка файлов$/.test(phase)) return span(10, 24);
   if (phase === 'Загрузка Java') return span(0, 25);
   if (phase === 'Проверка файлов игры') return 25;
   if (phase === 'Клиент игры') return span(25, 35);

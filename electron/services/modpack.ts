@@ -6,13 +6,13 @@ import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { instanceDir, p } from './paths';
 import { createInstance, deleteInstance, readInstance, writeInstance } from './instances';
-import { persistMods, scanMods } from './mods';
+import { contentDir, persistMods, scanMods } from './mods';
 import { createTask, downloadMany, finishTask, updateTask } from './downloader';
 import { modpackPercent } from '../../shared/progress';
 import { installLoader } from './loaders';
 import { appendLog } from './logs';
 import { catalogVersions } from './catalog';
-import type { CatalogVersion, InstalledMod, Instance, LoaderKind, LoaderSpec } from '../../shared/types';
+import type { CatalogProject, CatalogVersion, InstalledMod, Instance, LoaderKind, LoaderSpec } from '../../shared/types';
 
 interface MrpackIndex {
   formatVersion: number;
@@ -22,7 +22,7 @@ interface MrpackIndex {
   dependencies: Record<string, string>;
 }
 
-function loaderFromDependencies(deps: Record<string, string>): LoaderSpec {
+export function loaderFromDependencies(deps: Record<string, string>): LoaderSpec {
   if (deps['fabric-loader']) return { kind: 'fabric', version: deps['fabric-loader'] };
   if (deps['quilt-loader']) return { kind: 'quilt', version: deps['quilt-loader'] };
   if (deps['neoforge']) return { kind: 'neoforge', version: deps['neoforge'] };
@@ -30,7 +30,7 @@ function loaderFromDependencies(deps: Record<string, string>): LoaderSpec {
   return { kind: 'vanilla' };
 }
 
-function safeJoin(root: string, rel: string): string {
+export function safeJoin(root: string, rel: string): string {
   const target = path.resolve(root, rel);
   if (!target.startsWith(path.resolve(root))) throw new Error(`Небезопасный путь в архиве: ${rel}`);
   return target;
@@ -158,14 +158,16 @@ async function withCleanup(instance: Instance, fn: () => Promise<Instance>): Pro
  * иначе они выглядели бы «своими файлами» без обновлений, а повторный экспорт
  * для CurseForge клал бы их внутрь архива вместо ссылок.
  */
-async function recordCurseForgeFiles(
+export async function recordCurseForgeFiles(
   instanceId: string,
-  files: { fileName: string; projectId: string; fileId: string; sha1?: string; enabled: boolean }[]
+  files: { fileName: string; projectId: string; fileId: string; sha1?: string; enabled: boolean; kind?: InstalledMod['kind'] }[],
+  known?: Map<string, CatalogProject>
 ): Promise<void> {
   if (!files.length) return;
-  const projects = new Map(
-    (await getCurseForgeMods([...new Set(files.map((f) => f.projectId))]).catch(() => [])).map((pr) => [pr.id, pr])
-  );
+  const projects =
+    known && known.size
+      ? known
+      : new Map((await getCurseForgeMods([...new Set(files.map((f) => f.projectId))]).catch(() => [])).map((pr) => [pr.id, pr]));
   const now = new Date().toISOString();
   const records: InstalledMod[] = files.map((f) => {
     const project = projects.get(f.projectId);
@@ -177,18 +179,18 @@ async function recordCurseForgeFiles(
       version: f.fileName.replace(/\.jar$/i, ''),
       versionId: f.fileId,
       sha1: f.sha1,
-      kind: 'mod',
+      kind: f.kind ?? 'mod',
       projectId: f.projectId,
       source: 'curseforge',
       enabled: f.enabled,
       iconUrl: project?.iconUrl,
       installedAt: now
-    };
+    } as InstalledMod;
   });
   // required: false в манифесте — мод был выключен; выключаем и здесь
-  const modsDir = path.join(instanceDir(instanceId), 'mods');
   for (const r of records.filter((x) => !x.enabled)) {
-    await fsp.rename(path.join(modsDir, r.fileName), path.join(modsDir, `${r.fileName}.disabled`)).catch(() => undefined);
+    const dir = contentDir(instanceId, r.kind);
+    await fsp.rename(path.join(dir, r.fileName), path.join(dir, `${r.fileName}.disabled`)).catch(() => undefined);
   }
   const others = scanMods(instanceId).filter((m) => !records.some((r) => r.fileName === m.fileName));
   await persistMods(instanceId, [...others, ...records]);
@@ -242,7 +244,16 @@ export async function installCurseForgePack(
     const items = [];
     const manual: string[] = [];
     // Откуда каждый файл: проект и файл CurseForge известны из манифеста
-    const known: { fileName: string; projectId: string; fileId: string; sha1?: string; enabled: boolean }[] = [];
+    const known: { fileName: string; projectId: string; fileId: string; sha1?: string; enabled: boolean; kind: InstalledMod['kind'] }[] = [];
+    // Что это за проекты: шейдеры и ресурспаки в модпаке лежат рядом с модами,
+    // а класть их надо в shaderpacks/resourcepacks (иначе игра их не увидит)
+    const projects = new Map(
+      (await getCurseForgeMods([...new Set(manifest.files.map((f) => String(f.projectID)))]).catch(() => [])).map((pr) => [pr.id, pr])
+    );
+    const kindOf = (projectId: string): InstalledMod['kind'] => {
+      const t = projects.get(projectId)?.projectType;
+      return t === 'shader' ? 'shader' : t === 'resourcepack' ? 'resourcepack' : 'mod';
+    };
     onProgress('Файлы модпака', 0, manifest.files.length);
     // Сведения о файлах — пачками по 100 одним запросом
     const files = await getCurseForgeFileDownloads(manifest.files.map((f) => f.fileID));
@@ -257,11 +268,12 @@ export async function installCurseForgePack(
         manual.push(`${info.fileName}: https://www.curseforge.com/projects/${f.projectID}`);
         continue;
       }
-      items.push({ url: info.downloadUrl, dest: path.join(modsDir, info.fileName), sha1: info.sha1, size: info.size });
-      known.push({ fileName: info.fileName, projectId: String(f.projectID), fileId: String(f.fileID), sha1: info.sha1, enabled: f.required !== false });
+      const kind = kindOf(String(f.projectID));
+      items.push({ url: info.downloadUrl, dest: path.join(contentDir(instance.id, kind), info.fileName), sha1: info.sha1, size: info.size });
+      known.push({ fileName: info.fileName, projectId: String(f.projectID), fileId: String(f.fileID), sha1: info.sha1, enabled: f.required !== false, kind });
     }
     await downloadMany(items, { signal, concurrency: 3, onProgress: (d, t) => onProgress('Файлы модпака', d, t) });
-    await recordCurseForgeFiles(instance.id, known);
+    await recordCurseForgeFiles(instance.id, known, projects);
 
     const overrides = manifest.overrides || 'overrides';
     extractDir(zip, `${overrides}/`, instanceDir(instance.id));

@@ -854,3 +854,4 @@ button.week__day[aria-pressed='true'] .week__label {
 .search-suggest__chip[aria-selected='true'] {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
+

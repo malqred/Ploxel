@@ -6,9 +6,10 @@ import { flushLogFiles } from './services/logs';
 import { initDiscordPresence } from './services/discord';
 import { forgetStoredCurseForgeKey } from './services/curseforge';
 import { applyWindowChrome } from './services/chrome';
-import { initPaths } from './services/paths';
+import { initPaths, p } from './services/paths';
+import { setVerifiedCacheFile } from './services/downloader';
 import { handleMediaProtocol, registerMediaScheme } from './services/local-media';
-import { launchInstance } from './services/launcher';
+import { cancelHiddenForGame, launchInstance } from './services/launcher';
 import { loadSettings } from './services/settings';
 import { checkForUpdates } from './services/updater';
 import { refreshExpiredAccounts } from './services/microsoft';
@@ -35,6 +36,11 @@ if (!singleInstance) {
 app.on('second-instance', (_event, argv) => {
   if (win) {
     if (win.isMinimized()) win.restore();
+    // Окно могло быть спрятано на время игры (настройка «Закрыть»)
+    if (!win.isVisible()) {
+      cancelHiddenForGame();
+      win.show();
+    }
     win.focus();
     const launchArg = argv.find((a) => a.startsWith('--launch-instance='));
     if (launchArg) void launchInstance(launchArg.split('=')[1]).catch((e) => console.error('[launch]', e));
@@ -113,6 +119,8 @@ registerMediaScheme();
 app.whenReady().then(async () => {
   app.setAppUserModelId('com.ploxel.launcher');
   await initPaths();
+  // Память о проверенных файлах игры: при запуске не перечитывать сотни мегабайт
+  setVerifiedCacheFile(p('cache', 'verified-files.json'));
   handleMediaProtocol();
   forgetStoredCurseForgeKey();
   registerIpc();

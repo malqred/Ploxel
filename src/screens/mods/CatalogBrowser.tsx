@@ -15,8 +15,11 @@ import type {
   CatalogVersion,
   DatapackInfo,
   Instance,
-  InstalledMod
+  InstalledMod,
+  WorldInstallResult
 } from '../../../shared/types';
+import { worldInstallToast } from './world-install';
+import { offerManualDownload } from '../../ui/ManualDownloads';
 
 export type ContentType = CatalogProjectType;
 export type Source = 'modrinth' | 'curseforge';
@@ -161,9 +164,9 @@ export function CatalogBrowser({
       }
       // Мир распаковывается в saves сборки
       if (type === 'world' && mode === 'instance' && instance) {
-        await api.invoke('worlds:installFromCatalog', instance.id, project.source, project.id, { name: project.title });
+        const res = await api.invoke<WorldInstallResult>('worlds:installFromCatalog', instance.id, project.source, project.id, { name: project.title });
         onInstalled?.();
-        toast('success', `${project.title} добавлен`, `Мир появится в списке миров сборки «${instance.name}».`);
+        worldInstallToast(res, project.title, instance.name, toast);
         return;
       }
       if (mode === 'instance' && instance) {
@@ -198,6 +201,8 @@ export function CatalogBrowser({
       toast('success', 'Файл скачан', saved);
       await api.shell.showItem(saved);
     } catch (e) {
+      const kind = type === 'resourcepack' || type === 'shader' ? type : 'mod';
+      if (mode === 'instance' && instance && (await offerManualDownload(e, instance.id, project.source, project.id, kind))) return;
       toast('error', 'Не удалось скачать', e instanceof Error ? e.message : String(e));
     } finally {
       setInstalling((cur) => {

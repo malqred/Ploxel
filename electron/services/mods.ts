@@ -443,7 +443,49 @@ async function identifyOnCurseForge(instanceId: string, rest: InstalledMod[]): P
  */
 const IDENTIFY_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * Моды CurseForge без иконки и названия (сведения о проектах не пришли при установке
+ * модпака — обрыв соединения): дозапрашиваем. Шейдеры и ресурспаки, попавшие в mods,
+ * переносим в их папки — иначе игра их не видит. Возвращает, сколько записей исправлено.
+ */
+async function fillCurseForgeInfo(instanceId: string): Promise<number> {
+  const all = scanMods(instanceId);
+  const recently = (m: InstalledMod) => !!m.identifiedAt && Date.now() - Date.parse(m.identifiedAt) < IDENTIFY_RETRY_MS;
+  const need = all.filter((m) => m.source === 'curseforge' && m.projectId && !m.iconUrl && !recently(m));
+  if (!need.length) return 0;
+  const { getCurseForgeMods } = await import('./curseforge');
+  const projects = new Map((await getCurseForgeMods([...new Set(need.map((m) => m.projectId!))]).catch(() => [])).map((p) => [p.id, p]));
+  if (!projects.size) return 0;
+  const now = new Date().toISOString();
+  let fixed = 0;
+  for (const m of need) {
+    const p = projects.get(m.projectId!);
+    m.identifiedAt = now;
+    if (!p) continue;
+    m.name = p.title;
+    m.iconUrl = p.iconUrl;
+    const kind: InstalledMod['kind'] = p.projectType === 'shader' ? 'shader' : p.projectType === 'resourcepack' ? 'resourcepack' : m.kind;
+    if (kind !== m.kind) {
+      const from = contentDir(instanceId, m.kind);
+      const to = contentDir(instanceId, kind);
+      await fsp.mkdir(to, { recursive: true });
+      for (const name of [m.fileName, `${m.fileName}.disabled`]) {
+        if (fs.existsSync(path.join(from, name))) await fsp.rename(path.join(from, name), path.join(to, name)).catch(() => undefined);
+      }
+      m.kind = kind;
+    }
+    fixed++;
+  }
+  await persistMods(instanceId, all);
+  return fixed;
+}
+
 export async function identifyLocalMods(instanceId: string): Promise<number> {
+  const filled = await fillCurseForgeInfo(instanceId).catch(() => 0);
+  return filled + (await identifyLocalOnly(instanceId));
+}
+
+async function identifyLocalOnly(instanceId: string): Promise<number> {
   const mods = scanMods(instanceId);
   // Файлы, которые уже искали недавно и не нашли, не ищем снова при каждом открытии сборки:
   // это перечитывание сотен мегабайт и запросы к двум каталогам

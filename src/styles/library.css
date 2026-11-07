@@ -786,3 +786,27 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Перенос сборки: список модов без версии */
+.migrate-list {
+  gap: 3px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgb(var(--inset-rgb));
+}
+
+/* Пометка сборки-сервера в шапке */
+.instance-hero__server {
+  height: 20px;
+  padding: 0 8px;
+  margin-right: 8px;
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+/* Длинный список прокручивается, а не сжимает строки по высоте до нечитаемых */
+.migrate-list > * {
+  flex-shrink: 0;
+}

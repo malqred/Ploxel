@@ -40,7 +40,8 @@ export const defaultSettings = (): Settings => ({
     defaultInstanceId: null,
     onboardingDone: false,
     gameWindow: { width: 0, height: 0, fullscreen: false },
-    discordPresence: true
+    discordPresence: true,
+    memoryAdvice: { total: true, free: true }
   },
   java: { customJavaPath: '', jvmArgs: '-XX:+UseG1GC', autoDownloadJava: true },
   ai: { provider: 'none', baseUrl: '', model: '', apiKey: '', rememberKey: false, translateEmail: '' },

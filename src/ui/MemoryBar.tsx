@@ -17,11 +17,15 @@ export function MemoryBar({ allocatedGb }: { allocatedGb: number }) {
 
   useEffect(() => {
     let alive = true;
-    const load = () =>
+    // Свёрнутое окно не опрашиваем; перерисовка — только если свободная память
+    // сдвинулась хотя бы на 32 МБ (на полоске меньшее всё равно не видно)
+    const load = () => {
+      if (document.hidden) return;
       void api
         .invoke<SystemMemory>('system:memory')
-        .then((m) => alive && setMem(m))
+        .then((m) => alive && setMem((cur) => (cur && cur.totalMb === m.totalMb && Math.abs(cur.freeMb - m.freeMb) < 32 ? cur : m)))
         .catch(() => undefined);
+    };
     load();
     const timer = setInterval(load, 2000);
     return () => {

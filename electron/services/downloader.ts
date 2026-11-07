@@ -59,6 +59,81 @@ export interface DownloadStats {
 const USER_AGENT = 'PloxelLauncher/0.5 (contact: local)';
 /** файлы крупнее этого порога качаем Range-потоками, если включены */
 const LARGE_FILE_MIN = 8 * 1024 * 1024;
+
+/* ------------------------- Память о проверенных файлах ------------------------- */
+
+/**
+ * При каждом запуске игры все её файлы (тысячи ассетов, сотни библиотек) раньше
+ * перечитывались целиком ради контрольной суммы — сотни мегабайт с диска. Теперь
+ * запоминаем: файл с таким-то размером и временем изменения уже сверен с SHA-1.
+ * Пока файл не менялся, повторно его не читаем; новый или изменённый — проверяем
+ * целиком, как раньше. Память хранится в файле, чтобы работать и после перезапуска.
+ */
+const verified = new Map<string, string>();
+let verifiedFile: string | null = null;
+let verifiedLoaded = false;
+let verifiedSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const verifiedKey = (size: number, mtimeMs: number, sha1: string) => `${size}:${Math.floor(mtimeMs)}:${sha1.toLowerCase()}`;
+
+/** Где хранить память о проверенных файлах (вызывается при старте лаунчера). */
+export function setVerifiedCacheFile(file: string) {
+  verifiedFile = file;
+  verifiedLoaded = false;
+}
+
+function loadVerified() {
+  if (verifiedLoaded) return;
+  verifiedLoaded = true;
+  if (!verifiedFile) return;
+  try {
+    const obj = JSON.parse(fs.readFileSync(verifiedFile, 'utf8')) as Record<string, string>;
+    for (const [k, v] of Object.entries(obj)) verified.set(k, v);
+  } catch {
+    /* файла ещё нет */
+  }
+}
+
+function saveVerifiedSoon() {
+  if (!verifiedFile || verifiedSaveTimer) return;
+  verifiedSaveTimer = setTimeout(() => {
+    verifiedSaveTimer = null;
+    try {
+      fs.mkdirSync(path.dirname(verifiedFile!), { recursive: true });
+      fs.writeFileSync(verifiedFile!, JSON.stringify(Object.fromEntries(verified)), 'utf8');
+    } catch {
+      /* не критично: в следующий раз проверим заново */
+    }
+  }, 2000);
+  verifiedSaveTimer.unref?.();
+}
+
+/** Запомнить, что файл сверен с этим SHA-1. */
+async function rememberVerified(file: string, sha1?: string) {
+  if (!sha1) return;
+  try {
+    const st = await fsp.stat(file);
+    loadVerified();
+    verified.set(path.resolve(file), verifiedKey(st.size, st.mtimeMs, sha1));
+    saveVerifiedSoon();
+  } catch {
+    /* файла нет */
+  }
+}
+
+/** Файл уже сверен и с тех пор не менялся — читать его не нужно. */
+async function knownGood(item: DownloadItem): Promise<boolean> {
+  if (!item.sha1) return false;
+  loadVerified();
+  const entry = verified.get(path.resolve(item.dest));
+  if (!entry) return false;
+  try {
+    const st = await fsp.stat(item.dest);
+    if (item.size && st.size !== item.size) return false;
+    return entry === verifiedKey(st.size, st.mtimeMs, item.sha1);
+  } catch {
+    return false;
+  }
+}
 const MAX_ATTEMPTS = 4;
 const HEADER_TIMEOUT_MS = 30_000;
 /** сколько терпеть, что сервер не передаёт ни байта; живое соединение так долго не молчит */
@@ -243,8 +318,10 @@ export async function verifyFile(file: string, item: DownloadItem): Promise<void
 
 /** true, если файл уже на месте и соответствует размеру и хэшу (кэш). */
 async function fileOkFull(file: string, item: DownloadItem): Promise<boolean> {
+  if (file === item.dest && (await knownGood(item))) return true;
   try {
     await verifyFile(file, item);
+    if (file === item.dest) await rememberVerified(file, item.sha1);
     return true;
   } catch {
     return false;
@@ -814,6 +891,8 @@ async function doDownload(
       else await downloadSingle(src, signal, gate, report, attempt);
       await fsp.rename(partPath(item), item.dest); // атомарное перенесение
       if (threads > 0) cleanupParts(item, threads);
+      // Хэш уже сверен при загрузке — запоминаем, чтобы при запуске не читать файл заново
+      await rememberVerified(item.dest, item.sha1);
       return;
     } catch (e) {
       if (signal.aborted || cancelled()) throw new CancelledError();
@@ -1028,6 +1107,16 @@ export async function downloadMany(
   opts: { concurrency?: number; onProgress?: (done: number, total: number) => void; signal?: AbortSignal } = {}
 ): Promise<void> {
   const batchLimit = opts.concurrency ?? 6;
+  // Уже скачанные и сверенные файлы — сразу «готово», без задач в очереди
+  const known = await Promise.all(items.map((i) => knownGood(i)));
+  const skipped = known.filter(Boolean).length;
+  if (skipped) {
+    items = items.filter((_, i) => !known[i]);
+    opts.onProgress?.(skipped, skipped + items.length);
+    if (!items.length) return;
+    const inner = opts.onProgress;
+    opts = { ...opts, onProgress: inner ? (d, t) => inner(d + skipped, t + skipped) : undefined };
+  }
   const batchId = batchCounter++;
   batchSize.set(batchId, items.length);
   batchBytes.set(batchId, {

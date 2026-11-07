@@ -21,8 +21,7 @@ import {
   Square,
   Star,
   Trash2,
-  Wrench
-} from 'lucide-react';
+  Wrench, ArrowUpFromLine, Server } from 'lucide-react';
 import { api } from '../../api';
 import { Button, IconButton } from '../../ui/Button';
 import { Tabs, Toggle } from '../../ui/Controls';
@@ -35,6 +34,9 @@ import { CatalogBrowser, type ContentType } from '../mods/CatalogBrowser';
 import { ProjectPage } from '../mods/ProjectPage';
 import { BuildCheckModal } from './BuildCheckModal';
 import { AiImproveModal } from './AiImproveModal';
+import { MigrateModal } from './MigrateModal';
+import { ModpackPanel } from './ModpackUpdate';
+import { ServerModal } from './ServerModal';
 import { InstanceSettingsModal } from './InstanceSettingsModal';
 import { WorldsScreen } from '../WorldsScreen';
 import { TransferModModal } from './TransferModModal';
@@ -143,7 +145,8 @@ export function InstancePage({
     void reload().then((list) => {
       // Файлы без источника пробуем узнать в каталогах (Modrinth, CurseForge) — появятся
       // иконки, названия и обновления
-      if (list.some((m) => m.source === 'local')) {
+      // Модам из каталога без иконки (сведения не пришли при установке модпака) — дозапрос
+      if (list.some((m) => m.source === 'local' || (!!m.projectId && !m.iconUrl))) {
         void api
           .invoke<number>('mods:identify', instance.id)
           .then((n) => (n > 0 ? reload() : undefined))
@@ -219,6 +222,7 @@ export function InstancePage({
     setStarting(true);
     try {
       await api.invoke('launch:start', instance.id);
+      if (instance.server) toast('success', 'Сервер запускается', 'Он работает в отдельном окне консоли — там же команды и остановка (stop).');
     } catch (e) {
       toast('error', 'Не удалось запустить', e instanceof Error ? e.message : String(e));
     } finally {
@@ -322,6 +326,8 @@ export function InstancePage({
     }
   };
 
+  const [migrateOpen, setMigrateOpen] = useState(false);
+  const [serverOpen, setServerOpen] = useState(false);
   const duplicate = async () => {
     const copy = await api.invoke<Instance | null>('instances:duplicate', instance.id);
     if (copy) {
@@ -379,6 +385,7 @@ export function InstancePage({
               {instance.name}
             </h1>
             <p className="instance-hero__meta">
+              {instance.server && <span className="chip instance-hero__server">Сервер</span>}
               {LOADER_NAME[instance.loader.kind] ?? instance.loader.kind}
               {instance.loader.version ? ` ${instance.loader.version}` : ''}, Minecraft {instance.gameVersion}
             </p>
@@ -398,7 +405,7 @@ export function InstancePage({
               icon={running ? <Square size={16} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
               onClick={play}
             >
-              {running ? 'Остановить' : 'Играть'}
+              {running ? 'Остановить' : instance.server ? 'Запустить сервер' : 'Играть'}
             </Button>
             <IconButton
               label={instance.favorite ? 'Убрать из избранного' : 'В избранное'}
@@ -612,6 +619,9 @@ export function InstancePage({
         </div>
 
         <aside className="instance-page__aside">
+          {(instance.source?.kind === 'modrinth' || instance.source?.kind === 'curseforge') && instance.source.projectId && (
+            <ModpackPanel instance={instance} onUpdated={() => { void reload(); onChanged(); }} />
+          )}
           <section className="panel">
             <h3 className="panel__title">Поиск неисправностей</h3>
             <p className="small muted" style={{ margin: '6px 0 12px' }}>
@@ -625,6 +635,14 @@ export function InstancePage({
             <h3 className="panel__title">Действия</h3>
             <button className="action-row" onClick={duplicate}>
               <Copy size={16} /> Сделать копию
+            </button>
+            {!instance.server && (
+              <button className="action-row" onClick={() => setServerOpen(true)}>
+                <Server size={16} /> Сделать сервер из сборки
+              </button>
+            )}
+            <button className="action-row" onClick={() => setMigrateOpen(true)}>
+              <ArrowUpFromLine size={16} /> Перенести на другую версию
             </button>
             <button className="action-row" onClick={shortcut}>
               <MonitorUp size={16} /> Ярлык на рабочий стол
@@ -693,6 +711,8 @@ export function InstancePage({
         }}
       />
 
+      <MigrateModal open={migrateOpen} instance={instance} onClose={() => setMigrateOpen(false)} />
+      <ServerModal open={serverOpen} instance={instance} onClose={() => setServerOpen(false)} />
       <AiImproveModal open={improveOpen} instance={instance} modCount={counts.mod} onClose={closeImprove} />
       <BuildCheckModal
         open={buildCheckOpen}

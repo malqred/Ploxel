@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { ChevronDown, Sparkles } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { fmtGb } from '../../i18n';
+import { Checkbox } from '../../ui/Controls';
+import { useSettings } from '../../state/settings';
 import type { MemoryAdvice } from '../../../shared/memory-advice';
 
 const fmtPart = (gb: number) => `${gb > 0 ? '+' : gb < 0 ? '−' : ''}${fmtGb(Math.abs(gb))}`;
@@ -17,6 +19,23 @@ export function MemoryAdviceHint({
   onApply: (gb: number) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const { settings, update } = useSettings();
+  const opts = settings?.general.memoryAdvice ?? { total: true, free: true };
+  const setOpt = (patch: Partial<typeof opts>) => {
+    if (settings) void update({ general: { ...settings.general, memoryAdvice: { ...opts, ...patch } } });
+  };
+  const options = (
+    <div className="row wrap tiny" style={{ gap: 14 }}>
+      <label className="row" style={{ gap: 6, cursor: 'pointer' }}>
+        <Checkbox checked={opts.total} onChange={(v) => setOpt({ total: v })} label="Учитывать память компьютера" />
+        <span>Учитывать память компьютера</span>
+      </label>
+      <label className="row" style={{ gap: 6, cursor: 'pointer' }}>
+        <Checkbox checked={opts.free} onChange={(v) => setOpt({ free: v })} label="Учитывать занятую память" />
+        <span>Учитывать, сколько памяти свободно сейчас</span>
+      </label>
+    </div>
+  );
   if (!advice) return <span className="field__hint">Считаем рекомендацию по модам сборки…</span>;
   const same = Math.round(current) === advice.gb;
   return (
@@ -35,6 +54,12 @@ export function MemoryAdviceHint({
           Почему столько <ChevronDown size={13} style={{ transform: open ? 'rotate(180deg)' : undefined }} />
         </button>
       </div>
+      {options}
+      {advice.limitedByFree && advice.freeGb !== undefined && (
+        <span className="tiny" style={{ color: 'var(--warning)' }}>
+          {`Сейчас свободно ${fmtGb(advice.freeGb)}: другие программы занимают память. Закройте лишнее, чтобы выделить больше.`}
+        </span>
+      )}
       {advice.limitedByPc && (
         <span className="tiny" style={{ color: 'var(--warning)' }}>
           {`Для такого набора модов лучше ${advice.idealGb} ГБ, но на этом компьютере столько не выделить без вреда для системы.`}

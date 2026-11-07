@@ -79,6 +79,8 @@ export interface CustomThemeSnapshot {
 export interface GeneralSettings {
   language: string;
   closeLauncherOnGameStart: 'keep' | 'minimize' | 'close';
+  /** что учитывать в рекомендуемой памяти сборки: всю память компьютера и свободную сейчас */
+  memoryAdvice?: { total: boolean; free: boolean };
   assistantEnabled: boolean;
   /** автоматически докачивать обязательные зависимости модов */
   dependencyHelper: boolean;
@@ -210,6 +212,10 @@ export interface Instance {
   gameWindow?: GameWindow;
   modpackFile?: string;
   playtimeMinutes?: number;
+  /** сборка-сервер («Сделать сервер из сборки»): запускается start.bat, а не игра */
+  server?: boolean;
+  /** из какой сборки сделан сервер */
+  serverOf?: string;
 }
 
 export interface InstalledMod {
@@ -315,6 +321,23 @@ export interface WorldInfo {
 }
 
 /** Что ищется в каталоге. Датапаки ставятся не в сборку, а в мир. */
+/** Итог установки мира из каталога. */
+export interface WorldInstallResult {
+  world: WorldInfo;
+  /** сборка, в которую попал мир (новая, если миру нужен модпак) */
+  instanceId: string;
+  /** название новой сборки из модпака — если её пришлось создать */
+  createdInstance?: string;
+  /** что докачано для мира (названия) */
+  installed: string[];
+  /** что поставить не вышло (названия) */
+  missing: string[];
+  /** моды не поставить: в сборке нет загрузчика */
+  needsLoader?: boolean;
+  /** файлы, которые автор разрешил качать только с сайта: скачать вручную */
+  manual?: ManualFile[];
+}
+
 export type CatalogProjectType = 'mod' | 'modpack' | 'resourcepack' | 'shader' | 'datapack' | 'world';
 
 export interface CatalogProject {
@@ -348,6 +371,20 @@ export interface CatalogVersion {
   dependencies: { projectId: string; versionId?: string; required: boolean; type?: string }[];
   datePublished: string;
   changelog?: string;
+  /** файл есть, но автор запретил скачивание через лаунчеры (CurseForge): только с сайта */
+  blockedFile?: { fileName: string; size: number; sha1?: string };
+}
+
+/** Файл, который пользователь скачивает с сайта сам; лаунчер ловит его в «Загрузках». */
+export interface ManualFile {
+  instanceId: string;
+  kind: 'mod' | 'resourcepack' | 'shader';
+  title: string;
+  /** страница загрузки именно этого файла */
+  pageUrl: string;
+  fileName: string;
+  size: number;
+  sha1?: string;
 }
 
 export interface CatalogSearchQuery {

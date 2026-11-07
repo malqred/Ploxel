@@ -369,3 +369,33 @@ export async function getModrinthProjectBriefs(ids: string[]): Promise<Record<st
   }
   return out;
 }
+
+/**
+ * Нужен ли файл на сервере: по SHA-1 ищем версию на Modrinth и берём у проекта
+ * server_side (required/optional/unsupported). Подходит и для модов с CurseForge
+ * и своих файлов — у многих тот же jar лежит и на Modrinth.
+ * Возвращает sha1 → server_side; файлов, которых на Modrinth нет, в ответе нет.
+ */
+export async function modrinthServerSides(hashes: string[]): Promise<Record<string, 'required' | 'optional' | 'unsupported' | 'unknown'>> {
+  const out: Record<string, 'required' | 'optional' | 'unsupported' | 'unknown'> = {};
+  if (!hashes.length) return out;
+  const res = await fetch(`${BASE}/version_files`, {
+    method: 'POST',
+    headers: { 'User-Agent': UA, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hashes, algorithm: 'sha1' }),
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!res.ok) throw new Error(`Modrinth: HTTP ${res.status}`);
+  const versions = (await res.json()) as Record<string, { project_id: string }>;
+  const ids = [...new Set(Object.values(versions).map((v) => v.project_id))];
+  const sides = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 80) {
+    const list = await get<{ id: string; server_side: string }[]>(`${BASE}/projects?ids=${encodeURIComponent(JSON.stringify(ids.slice(i, i + 80)))}`);
+    for (const p of list) sides.set(p.id, p.server_side);
+  }
+  for (const [hash, v] of Object.entries(versions)) {
+    const side = sides.get(v.project_id);
+    if (side === 'required' || side === 'optional' || side === 'unsupported') out[hash] = side;
+  }
+  return out;
+}

@@ -407,6 +407,7 @@ export function LibraryScreen() {
                       <span className="instance-card__initial">{inst.name.slice(0, 1).toUpperCase()}</span>
                     )}
                     <span className="instance-card__badge">
+                      {inst.server ? 'сервер · ' : ''}
                       {inst.loader.kind === 'vanilla' ? 'без загрузчика' : inst.loader.kind}
                     </span>
                     <button

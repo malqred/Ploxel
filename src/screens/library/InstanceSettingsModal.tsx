@@ -93,7 +93,7 @@ export function InstanceSettingsModal({
     return () => {
       alive = false;
     };
-  }, [open, instance.id]);
+  }, [open, instance.id, settings?.general.memoryAdvice?.total, settings?.general.memoryAdvice?.free]);
 
   const totalGb = Math.floor((info?.totalMemMb ?? 8192) / 1024);
   const maxGb = Math.max(2, Math.min(32, totalGb - 2));

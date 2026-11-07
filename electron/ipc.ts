@@ -49,10 +49,14 @@ import {
   detectArchiveFormat,
   matchMods
 } from './services/launcher-import';
-import type { CrashCause } from '../shared/types';
+import type { CrashCause, ManualFile } from '../shared/types';
 import { listWorlds, importWorld, exportWorld, worldFolder } from './services/worlds';
 import * as datapacks from './services/datapacks';
 import { installWorldFromCatalog } from './services/world-catalog';
+import { applyMigration, planMigration } from './services/migrate';
+import { createServer, planServer } from './services/server-build';
+import { applyModpackUpdate, modpackVersions, planModpackUpdate } from './services/modpack-update';
+import { manualForProject, manualStatuses, useManualFile, watchManualFiles } from './services/manual-downloads';
 import * as configs from './services/configs';
 import { deleteSharedLog, prepareSharedLog, uploadLog } from './services/log-share';
 import { clearBackgrounds, pickBackground } from './services/local-media';
@@ -235,6 +239,12 @@ export function registerIpc(): void {
   handle('instances:update', (id: string, patch: Partial<Instance>) => instances.updateInstance(id, patch));
   handle('instances:delete', (id: string) => instances.deleteInstance(id));
   handle('instances:duplicate', (id: string) => instances.duplicateInstance(id));
+  // Перенос на другую версию игры: сначала план, потом копия с обновлёнными модами
+  handle('instances:planMigration', (id: string, to: string) => planMigration(id, to));
+  handle('instances:migrate', (id: string, to: string) => applyMigration(id, to));
+  // Сервер из сборки: какие моды пойдут на сервер, затем отдельная сборка-сервер
+  handle('server:plan', (id: string) => planServer(id));
+  handle('server:create', (id: string, opts: { world?: string; eula: boolean; offlinePlayers?: boolean; memoryMb?: number }) => createServer(id, opts));
   handle('instances:folder', async (id: string, sub?: string) => {
     let dir = await instances.openInstanceFolder(id);
     // Только известные подпапки сборки (например, снимки)
@@ -578,6 +588,10 @@ export function registerIpc(): void {
     return installModpackFileWithTask(res.filePaths[0]);
   });
   handle('modpack:manualMods', (instanceId: string) => manualModsCount(instanceId));
+  // Обновление модпака: версии, план изменений, само обновление
+  handle('modpack:versions', (instanceId: string) => modpackVersions(instanceId));
+  handle('modpack:planUpdate', (instanceId: string, versionId: string) => planModpackUpdate(instanceId, versionId));
+  handle('modpack:update', (instanceId: string, versionId: string) => applyModpackUpdate(instanceId, versionId));
   handle('modpack:importFile', (file: string) => installModpackFileWithTask(file));
   handle('modpack:export', async (instanceId: string, target?: string) => {
     const dest =
@@ -706,6 +720,18 @@ export function registerIpc(): void {
   handle('worlds:installFromCatalog', (instanceId: string, source: 'modrinth' | 'curseforge', projectId: string, opts?: { versionId?: string; name?: string }) =>
     installWorldFromCatalog(instanceId, source, projectId, opts)
   );
+  // Файлы, которые автор разрешил скачивать только с сайта CurseForge
+  handle('manual:watch', (files: ManualFile[]) => watchManualFiles(files));
+  handle('manual:status', (instanceId?: string) => manualStatuses(instanceId));
+  handle('manual:forProject', (instanceId: string, source: 'modrinth' | 'curseforge', projectId: string, kind: ManualFile['kind'], versionId?: string) => {
+    const instance = instances.readInstance(instanceId);
+    return instance ? manualForProject(instance, source, projectId, kind, versionId) : null;
+  });
+  handle('manual:pick', async (instanceId: string, fileName: string) => {
+    const res = await dialog.showOpenDialog({ title: `Укажите файл ${fileName}`, properties: ['openFile'] });
+    if (res.canceled || !res.filePaths[0]) return null;
+    return useManualFile(instanceId, fileName, res.filePaths[0]);
+  });
   handle('worlds:export', async (instanceId: string, folder: string, target?: string) => {
     const dest =
       target ??

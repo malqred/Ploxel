@@ -398,7 +398,7 @@ export function suggestQueries(
 
 /** Короткие ссылки на разделы настроек для поиска. */
 export const SETTINGS_LINKS = [
-  { id: 'general', title: 'Общие настройки', hint: 'язык, папка данных, память по умолчанию', hash: '/settings?tab=general' },
+  { id: 'general', title: 'Общие настройки', hint: 'папка данных, память, окно игры, Discord', hash: '/settings?tab=general' },
   { id: 'accounts', title: 'Аккаунты', hint: 'Microsoft, Ely.by и офлайн-профили', hash: '/settings?tab=accounts' },
   { id: 'appearance', title: 'Внешний вид', hint: 'темы, акценты, свой фон: картинка или видео, шрифты', hash: '/settings?tab=appearance' },
   { id: 'language', title: 'Язык интерфейса', hint: '13 языков и перевод страниц модов', hash: '/settings?tab=language' },

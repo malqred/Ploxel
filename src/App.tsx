@@ -23,6 +23,7 @@ import { PloxelMark } from './ui/PloxelMark';
 import { DownloadsIndicator } from './ui/DownloadsIndicator';
 import { AccountModal } from './ui/AccountModal';
 import { CrashDialog } from './ui/CrashDialog';
+import { ManualDownloadsHost } from './ui/ManualDownloads';
 import { Onboarding } from './ui/Onboarding';
 import { useToast } from './state/toast';
 import { applyAppearance, useSystemDark, useWindowFocused } from './theme/apply';
@@ -306,6 +307,7 @@ export function App() {
         exitCode={crashInstance?.code ?? null}
         onClose={() => setCrashInstance(null)}
       />
+      <ManualDownloadsHost />
       <Onboarding />
     </div>
   );
